@@ -10,6 +10,7 @@ public class FormulaEvaluatorTest {
         testEvaluateEmpty();
         testEvaluateNull();
         testEvaluateSingle();
+        testEvaluatePartitioning();
         System.out.println("All tests passed!");
     }
 
@@ -23,9 +24,6 @@ public class FormulaEvaluatorTest {
         evaluator.evaluate(items);
         if (db.batchCalledCount != 1) {
             throw new RuntimeException("Expected 1 batch call, but got " + db.batchCalledCount);
-        }
-        if (db.lastItems != items) {
-            throw new RuntimeException("Expected items to be passed to batch call");
         }
     }
 
@@ -55,14 +53,24 @@ public class FormulaEvaluatorTest {
         if (db.batchCalledCount != 1) {
             throw new RuntimeException("Expected 1 batch call for single item list, but got " + db.batchCalledCount);
         }
-        if (db.lastItems != items) {
-            throw new RuntimeException("Expected items to be passed to batch call for single item");
+    }
+
+    private static void testEvaluatePartitioning() {
+        MockDatabase db = new MockDatabase();
+        FormulaEvaluator evaluator = new FormulaEvaluator(db);
+        List<Item> items = new ArrayList<>();
+        for (int i = 0; i < 250; i++) {
+            items.add(new Item("id_" + i));
+        }
+        evaluator.evaluate(items);
+        // BATCH_SIZE is 100, so for 250 items, we expect 3 batch calls (100, 100, 50)
+        if (db.batchCalledCount != 3) {
+            throw new RuntimeException("Expected 3 batch calls for 250 items (batch size 100), but got " + db.batchCalledCount);
         }
     }
 
     static class MockDatabase implements Database {
         int batchCalledCount = 0;
-        List<Item> lastItems;
 
         @Override
         public void query(Item item) {}
@@ -70,7 +78,6 @@ public class FormulaEvaluatorTest {
         @Override
         public void queryBatch(List<Item> items) {
             batchCalledCount++;
-            lastItems = items;
         }
     }
 }
