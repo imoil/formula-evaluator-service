@@ -10,6 +10,8 @@ import org.apache.flink.api.common.state.BroadcastState;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.metrics.Counter;
 import org.apache.flink.metrics.Histogram;
@@ -32,6 +34,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
     
     // Key-value List State (RocksDB Backend 에 안전하게 저장됨)
     private transient ListState<Double> windowHistoryState;
+    private transient ValueState<Long> ruleStartTimeState;
     private transient RuleEngineService ruleEngineService;
     
     // 옵저버빌리티(Observability) 및 성능 튜닝을 위한 상태 모니터링 메트릭스
@@ -52,6 +55,10 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         stateDescriptor.enableTimeToLive(ttlConfig);
         windowHistoryState = getRuntimeContext().getListState(stateDescriptor);
         
+        ValueStateDescriptor<Long> ruleStartTimeDescriptor = new ValueStateDescriptor<>("ruleStartTime", Long.class);
+        ruleStartTimeDescriptor.enableTimeToLive(ttlConfig);
+        ruleStartTimeState = getRuntimeContext().getState(ruleStartTimeDescriptor);
+
         // Flink 클러스터 분산 워커에서 스프링 컨텍스트 없이 자체 생성하여 엔진 캐시 보장
         RuleEngineConfig config = new RuleEngineConfig();
         var evaluator = config.aviatorEvaluatorInstance(new WindowAvgFunction(), new WindowMaxFunction());
@@ -65,14 +72,35 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
 
     @Override
     public void processElement(SensorData value, ReadOnlyContext ctx, Collector<SensorData> out) throws Exception {
-        // 1. 센서의 최신 값을 히스토리에 추가
-        windowHistoryState.add(value.getValue());
+        // 1. 적용할 룰 조회
+        DynamicRule rule = ctx.getBroadcastState(ruleStateDescriptor).get(value.getSensorId());
+        
+        boolean usesWindow = rule != null && rule.getExpression() != null && rule.getExpression().contains("window_");
         
         List<Double> history = new ArrayList<>();
-        windowHistoryState.get().forEach(history::add);
-        
-        // 2. 적용할 룰 조회
-        DynamicRule rule = ctx.getBroadcastState(ruleStateDescriptor).get(value.getSensorId());
+        boolean hasInaccurateData = false;
+
+        if (usesWindow) {
+            // 윈도우 함수를 사용하는 경우에만 히스토리 유지
+            windowHistoryState.add(value.getValue());
+            windowHistoryState.get().forEach(history::add);
+
+            Long ruleStartTime = ruleStartTimeState.value();
+            if (ruleStartTime == null) {
+                // 룰이 처음 적용되거나, state가 만료/초기화된 경우 현재 시간을 시작 시간으로 설정
+                ruleStartTimeState.update(System.currentTimeMillis());
+                hasInaccurateData = true;
+            } else {
+                // 룰 변경 시점으로부터 30분이 지나지 않았다면 히스토리 데이터가 불완전하다고 간주
+                if (System.currentTimeMillis() - ruleStartTime < 30 * 60 * 1000) {
+                    hasInaccurateData = true;
+                }
+            }
+        } else {
+            // 윈도우 함수를 사용하지 않는 경우 메모리 절약을 위해 히스토리 초기화 (유지할 필요 없음)
+            windowHistoryState.clear();
+            ruleStartTimeState.clear();
+        }
         
         if (rule != null && rule.getExpression() != null) {
             Map<String, Object> env = new HashMap<>();
@@ -88,6 +116,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
                         .timestamp(value.getTimestamp())
                         .value(evaluatedResult)
                         .state(value.getState()) // 유지
+                        .hasInaccurateData(hasInaccurateData) // 부정확 플래그
                         .build();
                 out.collect(resultData);
                 ruleHitCounter.inc(); // 평가 성공 지표 측정
