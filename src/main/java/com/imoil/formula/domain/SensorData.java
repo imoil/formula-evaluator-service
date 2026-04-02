@@ -24,4 +24,8 @@ public class SensorData {
     
     // 상태 값 (0~3 범위)
     private int state;
+
+    // 윈도우 함수 등 히스토리 데이터가 충분하지 않아 연산 결과가 부정확할 수 있는지 여부
+    @Builder.Default
+    private boolean hasInaccurateData = false;
 }

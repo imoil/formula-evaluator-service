@@ -28,6 +28,7 @@ public class QuestDBIngestionService {
                     .symbol("sensor_id", data.getSensorId()) // High-cardinality 인덱스
                     .longColumn("state", data.getState())
                     .doubleColumn("value", data.getValue())
+                    .boolColumn("has_inaccurate_data", data.isHasInaccurateData())
                     .at(java.time.Instant.ofEpochMilli(data.getTimestamp()));
         }
     }
