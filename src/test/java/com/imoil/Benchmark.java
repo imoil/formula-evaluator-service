@@ -16,7 +16,7 @@ public class Benchmark {
 
         System.out.println("--- Starting Benchmark (Item Count: " + ITEM_COUNT + ") ---");
 
-        // Benchmark N+1 pattern (Conceptual - using a manual loop)
+        // Benchmark N+1 pattern
         long nPlusOneTotalTime = 0;
         for (int i = 0; i < ITERATIONS + WARMUP_ITERATIONS; i++) {
             MockDatabase db = new MockDatabase(1); // 1ms delay per call
@@ -30,12 +30,12 @@ public class Benchmark {
             }
         }
         double nPlusOneAvgMs = (nPlusOneTotalTime / (double) ITERATIONS) / 1_000_000.0;
-        System.out.printf("Baseline (N+1) Avg Execution Time: %.2f ms\n", nPlusOneAvgMs);
+        System.out.printf("Baseline (N+1) Avg: %.2f ms\n", nPlusOneAvgMs);
 
-        // Benchmark Optimized pattern (Batch Partitioned)
+        // Benchmark Optimized Batch (Sequential Partitioned)
         long optimizedTotalTime = 0;
         for (int i = 0; i < ITERATIONS + WARMUP_ITERATIONS; i++) {
-            MockDatabase db = new MockDatabase(1); // 1ms delay per call (batch)
+            MockDatabase db = new MockDatabase(1); // 1ms delay per batch call
             FormulaEvaluator evaluator = new FormulaEvaluator(db);
             long startTime = System.nanoTime();
             evaluator.evaluate(items);
@@ -45,7 +45,7 @@ public class Benchmark {
             }
         }
         double optimizedAvgMs = (optimizedTotalTime / (double) ITERATIONS) / 1_000_000.0;
-        System.out.printf("Optimized (Batch Partitioned) Avg Execution Time: %.2f ms\n", optimizedAvgMs);
+        System.out.printf("Optimized (Batch) Avg: %.2f ms\n", optimizedAvgMs);
 
         System.out.printf("Performance Gain: %.2f%%\n", (1.0 - optimizedAvgMs / nPlusOneAvgMs) * 100);
     }
