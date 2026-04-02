@@ -14,15 +14,4 @@ public class FormulaEvaluator {
             db.queryBatch(items);
         }
     }
-
-    public interface Database {
-        void query(Item item);
-        void queryBatch(List<Item> items);
-    }
-
-    public static class Item {
-        private final String id;
-        public Item(String id) { this.id = id; }
-        public String getId() { return id; }
-    }
 }
