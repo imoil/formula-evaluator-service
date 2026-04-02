@@ -42,11 +42,11 @@ public class QuestDBQueryRepository {
     }
 
     private SensorData mapRowToSensorData(ResultSet rs, String sensorId) throws SQLException {
-        // QuestDBTimestamp -> Micros 보정
-        long timestampMicros = rs.getTimestamp("timestamp").getTime() * 1000L;
+        // QuestDBTimestamp -> Millis 보정
+        long timestampMillis = rs.getTimestamp("timestamp").getTime();
         return SensorData.builder()
                 .sensorId(sensorId)
-                .timestamp(timestampMicros)
+                .timestamp(timestampMillis)
                 .value(rs.getDouble("v"))
                 .state(rs.getInt("s"))
                 .build();

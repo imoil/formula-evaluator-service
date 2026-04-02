@@ -14,6 +14,8 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -36,6 +38,14 @@ public class StreamingEvaluatorE2ETest {
     @Container
     static final KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"));
 
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        // QuestDB 동적 포트(Testcontainers) 매핑
+        registry.add("questdb.client.url", () -> String.format("http::addr=%s:%d;", questDB.getHost(), questDB.getMappedPort(9000)));
+        registry.add("spring.datasource.url", () -> String.format("jdbc:postgresql://%s:%d/qdb", questDB.getHost(), questDB.getMappedPort(8812)));
+        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+    }
+
     @Test
     void testEndToEndPipeline() throws Exception {
         // 1. 카프카 토픽에 초기 룰 주입 
@@ -57,7 +67,7 @@ public class StreamingEvaluatorE2ETest {
             // 2. 센서 데이터 주입
             SensorData data = SensorData.builder()
                     .sensorId("sensor_e2e")
-                    .timestamp(Instant.now().toEpochMilli() * 1000L)
+                    .timestamp(Instant.now().toEpochMilli())
                     .value(5.0)
                     .state(1)
                     .build();

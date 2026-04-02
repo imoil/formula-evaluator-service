@@ -44,7 +44,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         
         // 메모리 폭발 누수(OOM) 방지 및 GC 최적화를 위한 RocksDB State TTL(수명) 부과
         org.apache.flink.api.common.state.StateTtlConfig ttlConfig = org.apache.flink.api.common.state.StateTtlConfig
-                .newBuilder(org.apache.flink.api.common.time.Time.minutes(30))
+                .newBuilder(java.time.Duration.ofMinutes(30))
                 .setUpdateType(org.apache.flink.api.common.state.StateTtlConfig.UpdateType.OnCreateAndWrite)
                 .setStateVisibility(org.apache.flink.api.common.state.StateTtlConfig.StateVisibility.NeverReturnExpired)
                 .build();

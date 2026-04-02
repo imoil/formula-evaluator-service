@@ -53,13 +53,13 @@ public class QuestDBIngestionServiceTest {
     void testBulkIngestion() throws Exception {
         int recordCount = 10000;
         List<SensorData> batch = new ArrayList<>();
-        // 단위: 마이크로초 (Microseconds)
-        long currentMicros = Instant.now().toEpochMilli() * 1000L;
+        // 단위: 밀리초 (Milliseconds)
+        long currentMillis = Instant.now().toEpochMilli();
 
         for (int i = 0; i < recordCount; i++) {
             batch.add(SensorData.builder()
                     .sensorId("sensor_" + (i % 10))
-                    .timestamp(currentMicros + (i * 1000L)) // 1밀리초 씩 증가 (데이터 순서화)
+                    .timestamp(currentMillis + i) // 1밀리초 씩 증가 (데이터 순서화)
                     .value(Math.random() * 100)
                     .state(i % 4) // 0~3까지의 state 할당
                     .build());

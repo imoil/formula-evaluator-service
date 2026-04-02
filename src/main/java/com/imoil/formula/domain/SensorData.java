@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 public class SensorData {
     private String sensorId;
     
-    // 발생 시각 (마이크로초 단위, microseconds since epoch)
+    // 발생 시각 (밀리초 단위, milliseconds since epoch)
     private long timestamp;
     
     // 센서 측정 값
