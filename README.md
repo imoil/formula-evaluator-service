@@ -43,5 +43,26 @@ mvn clean compile package
 ### 3. Flink Job E2E Local Test
 본 프로젝트 `src/test/java/`의 `StreamingEvaluatorE2ETest`를 구동할 시 자체적으로 미니 Flink 클러스터를 띄우고 카프카로 룰과 센서 값을 전송해 End-To-End가 정상 관통하는지 체크합니다.
 
+### 4. Flink Job 외부 설정 파라미터로 실행하기
+Flink Job 실행 시 다양한 환경(Kafka 연결 정보, 보존 시간, QuestDB URL 등)에 대응하기 위해 `ParameterTool`을 활용한 외부 설정 인자 주입을 지원합니다. 다음과 같은 방법으로 커스텀 설정을 주입하여 Flink 클러스터에 제출할 수 있습니다.
+
+```bash
+flink run -c com.imoil.formula.flink.StreamingEvaluatorJob target/formula-evaluator-service-0.0.1-SNAPSHOT.jar \
+  --kafka-bootstrap-servers "prod-kafka:9092" \
+  --kafka-topic-sensor "prod-sensor-data" \
+  --kafka-topic-rule "prod-rule-data" \
+  --retention-time-minutes 60 \
+  --questdb-url "http::addr=prod-questdb:9000;auto_flush_interval=1000;auto_flush_rows=200000;"
+```
+
+**지원하는 파라미터 목록:**
+* `--kafka-bootstrap-servers`: Kafka 서버 주소 (기본값: `localhost:9092`)
+* `--kafka-topic-sensor`: 센서 데이터 토픽 (기본값: `sensor-data`)
+* `--kafka-group-sensor`: 센서 데이터 컨슈머 그룹 (기본값: `flink-sensor-group`)
+* `--kafka-topic-rule`: 동적 룰 데이터 토픽 (기본값: `rule-data`)
+* `--kafka-group-rule`: 동적 룰 컨슈머 그룹 (기본값: `flink-rule-group`)
+* `--retention-time-minutes`: 윈도우 함수 계산을 위한 히스토리 상태 보존 시간 (분) (기본값: `30`)
+* `--questdb-url`: QuestDB ILP 연결 URL 및 설정 (기본값: `http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;`)
+
 ---
-**Note:** 이 시스템의 Flink Job 클래스는 로컬 의존성에 종속되지 않고 `application.yml` 파라미터를 읽어 프로덕션 레포지토리에 클라우드-네이티브로 즉시 띄울 수 있도록 구성되어 있습니다.
+**Note:** 이 시스템의 Flink Job 클래스는 로컬 의존성에 종속되지 않고 외부 설정 파라미터를 읽어 프로덕션 레포지토리에 클라우드-네이티브로 즉시 띄울 수 있도록 구성되어 있습니다.
