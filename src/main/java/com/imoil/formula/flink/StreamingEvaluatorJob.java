@@ -26,23 +26,25 @@ public class StreamingEvaluatorJob {
         
         // 메모리 폭발 방지 및 파일 병합을 위한 RocksDB State Backend 통합 활성화
         env.setStateBackend(new EmbeddedRocksDBStateBackend(true)); // Incremental Checkpoint 활성화
-        env.enableCheckpointing(10000); // 10초 주기 체크포인트 (장애 복구 보장용)
-        env.getCheckpointConfig().setTolerableCheckpointFailureNumber(2);
+        env.enableCheckpointing(AppConstants.CHECKPOINT_INTERVAL_MS); // 주기적 체크포인트 (장애 복구 보장용)
+        env.getCheckpointConfig().setTolerableCheckpointFailureNumber(AppConstants.TOLERABLE_CHECKPOINT_FAILURE_NUMBER);
+
+        String kafkaBootstrapServers = parameters.get("kafka-bootstrap-servers", AppConstants.KAFKA_BOOTSTRAP_SERVERS_DEFAULT);
         
         // Sensor Data Kafka Source
         KafkaSource<String> sensorKafkaSource = KafkaSource.<String>builder()
-                .setBootstrapServers("localhost:9092")
-                .setTopics("sensor-data")
-                .setGroupId("flink-sensor-group")
+                .setBootstrapServers(kafkaBootstrapServers)
+                .setTopics(parameters.get("kafka-topic-sensor", AppConstants.KAFKA_TOPIC_SENSOR_DATA_DEFAULT))
+                .setGroupId(parameters.get("kafka-group-sensor", AppConstants.KAFKA_GROUP_ID_SENSOR_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
         // Rule 메타데이터 Kafka Source
         KafkaSource<String> ruleKafkaSource = KafkaSource.<String>builder()
-                .setBootstrapServers("localhost:9092")
-                .setTopics("rule-data")
-                .setGroupId("flink-rule-group")
+                .setBootstrapServers(kafkaBootstrapServers)
+                .setTopics(parameters.get("kafka-topic-rule", AppConstants.KAFKA_TOPIC_RULE_DATA_DEFAULT))
+                .setGroupId(parameters.get("kafka-group-rule", AppConstants.KAFKA_GROUP_ID_RULE_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
@@ -63,14 +65,14 @@ public class StreamingEvaluatorJob {
         BroadcastStream<DynamicRule> broadcastRuleStream = ruleStream.broadcast(ruleStateDescriptor);
 
         // 분산 처리와 상태 저장을 위한 센서 ID 기반 KeyBy 및 브로드캐스트 연결
-        long retentionTimeMinutes = parameters.getLong("retention-time-minutes", 30L);
+        long retentionTimeMinutes = parameters.getLong("retention-time-minutes", AppConstants.RETENTION_TIME_MINUTES_DEFAULT);
         DataStream<SensorData> evaluatedStream = sensorStream
                 .keyBy(SensorData::getSensorId) 
                 .connect(broadcastRuleStream)
                 .process(new RuleBroadcastProcessFunction(retentionTimeMinutes));
 
         // ILP 프로토콜을 사용한 QuestDB 최종 적재 Sink 연동결합 (초당 수백만 건 수용을 위한 버퍼/비동기 조건 명시)
-        String questdbUrl = parameters.get("questdb-url", "http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;");
+        String questdbUrl = parameters.get("questdb-url", AppConstants.QUESTDB_URL_DEFAULT);
         evaluatedStream.addSink(new QuestDbIlpSink(questdbUrl));
 
         env.execute("Formula Evaluator Streaming Job");
