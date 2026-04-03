@@ -63,7 +63,7 @@ public class StreamingEvaluatorJob {
         DataStream<SensorData> evaluatedStream = sensorStream
                 .keyBy(SensorData::getSensorId) 
                 .connect(broadcastRuleStream)
-                .process(new RuleBroadcastProcessFunction());
+                .process(new RuleBroadcastProcessFunction(30)); // 기본 30분 설정, 필요시 외부 설정 파일에서 주입 가능
 
         // ILP 프로토콜을 사용한 QuestDB 최종 적재 Sink 연동결합 (초당 수백만 건 수용을 위한 버퍼/비동기 조건 명시)
         evaluatedStream.addSink(new QuestDbIlpSink("http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;"));
