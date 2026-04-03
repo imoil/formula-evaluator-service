@@ -37,9 +37,20 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
     private transient ValueState<Long> ruleStartTimeState;
     private transient RuleEngineService ruleEngineService;
     
+    // 보존 시간 설정 (기본값 30분)
+    private final long retentionTimeMinutes;
+
     // 옵저버빌리티(Observability) 및 성능 튜닝을 위한 상태 모니터링 메트릭스
     private transient Counter ruleHitCounter;
     private transient Counter ruleMissCounter;
+
+    public RuleBroadcastProcessFunction() {
+        this(30); // 기본 보존 시간 30분
+    }
+
+    public RuleBroadcastProcessFunction(long retentionTimeMinutes) {
+        this.retentionTimeMinutes = retentionTimeMinutes;
+    }
 
     @Override
     public void open(Configuration parameters) {
@@ -47,7 +58,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         
         // 메모리 폭발 누수(OOM) 방지 및 GC 최적화를 위한 RocksDB State TTL(수명) 부과
         org.apache.flink.api.common.state.StateTtlConfig ttlConfig = org.apache.flink.api.common.state.StateTtlConfig
-                .newBuilder(java.time.Duration.ofMinutes(30))
+                .newBuilder(java.time.Duration.ofMinutes(retentionTimeMinutes))
                 .setUpdateType(org.apache.flink.api.common.state.StateTtlConfig.UpdateType.OnCreateAndWrite)
                 .setStateVisibility(org.apache.flink.api.common.state.StateTtlConfig.StateVisibility.NeverReturnExpired)
                 .build();
@@ -75,7 +86,13 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         // 1. 적용할 룰 조회
         DynamicRule rule = ctx.getBroadcastState(ruleStateDescriptor).get(value.getSensorId());
         
-        boolean usesWindow = rule != null && rule.getExpression() != null && rule.getExpression().contains("window_");
+        boolean usesWindow = false;
+        if (rule != null && rule.getExpression() != null) {
+            String expr = rule.getExpression();
+            // "window_" 혹은 "previous_" 등 히스토리 데이터가 필요한 함수를 동적으로 확인
+            usesWindow = expr.contains("window_") || expr.contains("previous_");
+            // 추가적인 히스토리 요구 함수는 여기에 조건을 확장하여 사용할 수 있습니다.
+        }
         
         List<Double> history = new ArrayList<>();
         boolean hasInaccurateData = false;
@@ -91,8 +108,8 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
                 ruleStartTimeState.update(System.currentTimeMillis());
                 hasInaccurateData = true;
             } else {
-                // 룰 변경 시점으로부터 30분이 지나지 않았다면 히스토리 데이터가 불완전하다고 간주
-                if (System.currentTimeMillis() - ruleStartTime < 30 * 60 * 1000) {
+                // 룰 변경 시점으로부터 설정된 보존 시간이 지나지 않았다면 히스토리 데이터가 불완전하다고 간주
+                if (System.currentTimeMillis() - ruleStartTime < retentionTimeMinutes * 60 * 1000) {
                     hasInaccurateData = true;
                 }
             }
