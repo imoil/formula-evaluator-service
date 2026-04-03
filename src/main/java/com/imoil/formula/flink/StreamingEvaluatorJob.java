@@ -29,13 +29,13 @@ public class StreamingEvaluatorJob {
         env.enableCheckpointing(AppConstants.CHECKPOINT_INTERVAL_MS); // 주기적 체크포인트 (장애 복구 보장용)
         env.getCheckpointConfig().setTolerableCheckpointFailureNumber(AppConstants.TOLERABLE_CHECKPOINT_FAILURE_NUMBER);
 
-        String kafkaBootstrapServers = parameters.get("kafka-bootstrap-servers", AppConstants.KAFKA_BOOTSTRAP_SERVERS_DEFAULT);
+        String kafkaBootstrapServers = parameters.get(AppConstants.ARG_KAFKA_BOOTSTRAP_SERVERS, AppConstants.KAFKA_BOOTSTRAP_SERVERS_DEFAULT);
         
         // Sensor Data Kafka Source
         KafkaSource<String> sensorKafkaSource = KafkaSource.<String>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
-                .setTopics(parameters.get("kafka-topic-sensor", AppConstants.KAFKA_TOPIC_SENSOR_DATA_DEFAULT))
-                .setGroupId(parameters.get("kafka-group-sensor", AppConstants.KAFKA_GROUP_ID_SENSOR_DEFAULT))
+                .setTopics(parameters.get(AppConstants.ARG_KAFKA_TOPIC_SENSOR, AppConstants.KAFKA_TOPIC_SENSOR_DATA_DEFAULT))
+                .setGroupId(parameters.get(AppConstants.ARG_KAFKA_GROUP_SENSOR, AppConstants.KAFKA_GROUP_ID_SENSOR_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
@@ -43,14 +43,14 @@ public class StreamingEvaluatorJob {
         // Rule 메타데이터 Kafka Source
         KafkaSource<String> ruleKafkaSource = KafkaSource.<String>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
-                .setTopics(parameters.get("kafka-topic-rule", AppConstants.KAFKA_TOPIC_RULE_DATA_DEFAULT))
-                .setGroupId(parameters.get("kafka-group-rule", AppConstants.KAFKA_GROUP_ID_RULE_DEFAULT))
+                .setTopics(parameters.get(AppConstants.ARG_KAFKA_TOPIC_RULE, AppConstants.KAFKA_TOPIC_RULE_DATA_DEFAULT))
+                .setGroupId(parameters.get(AppConstants.ARG_KAFKA_GROUP_RULE, AppConstants.KAFKA_GROUP_ID_RULE_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
-        DataStream<String> sensorStrings = env.fromSource(sensorKafkaSource, WatermarkStrategy.noWatermarks(), "Sensor Data Source");
-        DataStream<String> ruleStrings = env.fromSource(ruleKafkaSource, WatermarkStrategy.noWatermarks(), "Rule Source");
+        DataStream<String> sensorStrings = env.fromSource(sensorKafkaSource, WatermarkStrategy.noWatermarks(), AppConstants.SOURCE_NAME_SENSOR);
+        DataStream<String> ruleStrings = env.fromSource(ruleKafkaSource, WatermarkStrategy.noWatermarks(), AppConstants.SOURCE_NAME_RULE);
 
         ObjectMapper mapper = new ObjectMapper();
 
@@ -59,22 +59,22 @@ public class StreamingEvaluatorJob {
 
         // 브로드캐스트 상태 디스크립터
         MapStateDescriptor<String, DynamicRule> ruleStateDescriptor = new MapStateDescriptor<>(
-                "DynamicRules", String.class, DynamicRule.class);
+                AppConstants.STATE_DESC_RULES, String.class, DynamicRule.class);
 
         // 룰 스트림 브로드캐스트
         BroadcastStream<DynamicRule> broadcastRuleStream = ruleStream.broadcast(ruleStateDescriptor);
 
         // 분산 처리와 상태 저장을 위한 센서 ID 기반 KeyBy 및 브로드캐스트 연결
-        long retentionTimeMinutes = parameters.getLong("retention-time-minutes", AppConstants.RETENTION_TIME_MINUTES_DEFAULT);
+        long retentionTimeMinutes = parameters.getLong(AppConstants.ARG_RETENTION_TIME_MINUTES, AppConstants.RETENTION_TIME_MINUTES_DEFAULT);
         DataStream<SensorData> evaluatedStream = sensorStream
                 .keyBy(SensorData::getSensorId) 
                 .connect(broadcastRuleStream)
                 .process(new RuleBroadcastProcessFunction(retentionTimeMinutes));
 
         // ILP 프로토콜을 사용한 QuestDB 최종 적재 Sink 연동결합 (초당 수백만 건 수용을 위한 버퍼/비동기 조건 명시)
-        String questdbUrl = parameters.get("questdb-url", AppConstants.QUESTDB_URL_DEFAULT);
+        String questdbUrl = parameters.get(AppConstants.ARG_QUESTDB_URL, AppConstants.QUESTDB_URL_DEFAULT);
         evaluatedStream.addSink(new QuestDbIlpSink(questdbUrl));
 
-        env.execute("Formula Evaluator Streaming Job");
+        env.execute(AppConstants.JOB_NAME);
     }
 }
