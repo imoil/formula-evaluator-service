@@ -11,6 +11,7 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.streaming.api.datastream.BroadcastStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 /**
@@ -19,7 +20,9 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 public class StreamingEvaluatorJob {
 
     public static void main(String[] args) throws Exception {
+        ParameterTool parameters = ParameterTool.fromArgs(args);
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.getConfig().setGlobalJobParameters(parameters);
         
         // 메모리 폭발 방지 및 파일 병합을 위한 RocksDB State Backend 통합 활성화
         env.setStateBackend(new EmbeddedRocksDBStateBackend(true)); // Incremental Checkpoint 활성화
@@ -60,13 +63,15 @@ public class StreamingEvaluatorJob {
         BroadcastStream<DynamicRule> broadcastRuleStream = ruleStream.broadcast(ruleStateDescriptor);
 
         // 분산 처리와 상태 저장을 위한 센서 ID 기반 KeyBy 및 브로드캐스트 연결
+        long retentionTimeMinutes = parameters.getLong("retention-time-minutes", 30L);
         DataStream<SensorData> evaluatedStream = sensorStream
                 .keyBy(SensorData::getSensorId) 
                 .connect(broadcastRuleStream)
-                .process(new RuleBroadcastProcessFunction(30)); // 기본 30분 설정, 필요시 외부 설정 파일에서 주입 가능
+                .process(new RuleBroadcastProcessFunction(retentionTimeMinutes));
 
         // ILP 프로토콜을 사용한 QuestDB 최종 적재 Sink 연동결합 (초당 수백만 건 수용을 위한 버퍼/비동기 조건 명시)
-        evaluatedStream.addSink(new QuestDbIlpSink("http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;"));
+        String questdbUrl = parameters.get("questdb-url", "http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;");
+        evaluatedStream.addSink(new QuestDbIlpSink(questdbUrl));
 
         env.execute("Formula Evaluator Streaming Job");
     }
