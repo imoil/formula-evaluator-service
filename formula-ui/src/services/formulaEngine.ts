@@ -1,23 +1,23 @@
-import type { FormulaDefinition, FormulaDependencyInfo, SimulationResultPoint, SimulationMetrics } from '../types/formula'
+import type {
+  FormulaDefinition,
+  FormulaDependencyInfo,
+  SimulationResultPoint,
+  SimulationMetrics,
+} from '../types/formula'
 import type { SensorDataPoint } from '../types/sensor'
 import { generateSensorTimeSeries } from './sensorDataGenerator'
 
 /**
- * Extract tokens representing sensors and potential formula IDs from an expression.
+ * Tokenize an expression and extract referenced variables
  */
 export function extractReferences(
-  expression: string,
+  expressionStr: string,
   allFormulas: FormulaDefinition[]
 ): {
   sensorIds: string[]
   formulaIds: string[]
 } {
-  const formulaIdSet = new Set(allFormulas.map((f) => f.id))
-  const foundSensors = new Set<string>()
-  const foundFormulas = new Set<string>()
-
-  // Match identifiers (alphanumeric + underscore)
-  const identifierRegex = /\b[a-zA-Z_][a-zA-Z0-9_]*\b/g
+  // Built-in JS functions, keywords, operators, and window aggregation functions
   const reservedWords = new Set([
     'window_avg',
     'window_max',
@@ -33,49 +33,60 @@ export function extractReferences(
     'log',
     'sin',
     'cos',
+    'value',
     'true',
     'false',
     'null',
+    'undefined',
     'NaN',
     'Infinity',
-    'value',
-    'state',
+    'Math',
   ])
 
-  let match: RegExpExecArray | null
-  while ((match = identifierRegex.exec(expression)) !== null) {
-    const token = match[0]
-    if (reservedWords.has(token)) {
-      continue
-    }
+  const knownFormulaIds = new Set(allFormulas.map((f) => f.id))
 
-    if (/^sensor_\d{1,3}$/.test(token)) {
-      // Normalize sensor_01 -> sensor_001 if needed
-      const numPart = token.replace('sensor_', '')
-      const paddedId = `sensor_${numPart.padStart(3, '0')}`
-      foundSensors.add(paddedId)
-    } else if (formulaIdSet.has(token)) {
-      foundFormulas.add(token)
+  // Match identifier tokens: letters, numbers, underscores (starting with letter or underscore)
+  const identifierRegex = /[a-zA-Z_][a-zA-Z0-9_]*/g
+  const tokens = expressionStr.match(identifierRegex) || []
+
+  const sensorIds = new Set<string>()
+  const formulaIds = new Set<string>()
+
+  for (const token of tokens) {
+    if (reservedWords.has(token)) continue
+
+    // Detect sensor tokens (e.g. sensor_000, temp_sensor_1, SENSOR_01)
+    if (/^(sensor_\d{3}|sensor_\d+|[A-Za-z0-9_]+_sensor|[A-Za-z0-9_]+_stream)$/i.test(token)) {
+      sensorIds.add(token)
+    } else if (knownFormulaIds.has(token)) {
+      formulaIds.add(token)
+    } else if (token.startsWith('sensor_')) {
+      sensorIds.add(token)
+    } else {
+      // If it looks like a formula identifier (UPPER_CASE or defined formula)
+      if (/^[A-Z0-9_]+$/.test(token) && knownFormulaIds.has(token)) {
+        formulaIds.add(token)
+      }
     }
   }
 
   return {
-    sensorIds: Array.from(foundSensors),
-    formulaIds: Array.from(foundFormulas),
+    sensorIds: Array.from(sensorIds),
+    formulaIds: Array.from(formulaIds),
   }
 }
 
 /**
- * Analyze dependencies for a formula, checking for cycles and finding topological order.
+ * Perform static DAG analysis to find all upstream and downstream references and detect circular dependency cycles
  */
 export function analyzeFormulaDependencies(
   formulaId: string,
   allFormulas: FormulaDefinition[]
 ): FormulaDependencyInfo {
   const formulaMap = new Map<string, FormulaDefinition>(allFormulas.map((f) => [f.id, f]))
-  const targetFormula = formulaMap.get(formulaId)
+  const target = formulaMap.get(formulaId)
 
-  if (!targetFormula) {
+  if (!target) {
     return {
       referencedSensors: [],
       referencedFormulas: [],
@@ -84,9 +95,9 @@ export function analyzeFormulaDependencies(
     }
   }
 
-  const { sensorIds, formulaIds } = extractReferences(targetFormula.expression, allFormulas)
+  const { sensorIds, formulaIds } = extractReferences(target.expression, allFormulas)
 
-  // Find which formulas depend on THIS formula
+  // Find all formulas that directly depend on (call) this formula
   const dependentFormulas: string[] = []
   for (const f of allFormulas) {
     if (f.id === formulaId) continue
@@ -96,7 +107,7 @@ export function analyzeFormulaDependencies(
     }
   }
 
-  // Detect cycle using DFS
+  // Detect circular dependency using DFS cycle detection
   const visited = new Set<string>()
   const recStack = new Set<string>()
   let cyclePath: string[] | undefined
@@ -142,7 +153,10 @@ export function analyzeFormulaDependencies(
 export function getEvaluationOrder(
   targetFormulaId: string,
   allFormulas: FormulaDefinition[]
-): { order: string[]; error?: string } {
+): {
+  order: string[]
+  error?: string
+} {
   const formulaMap = new Map<string, FormulaDefinition>(allFormulas.map((f) => [f.id, f]))
   const visited = new Set<string>()
   const visiting = new Set<string>()
@@ -175,6 +189,33 @@ export function getEvaluationOrder(
   }
 
   return { order }
+}
+
+/**
+ * Collect all required sensor IDs for evaluating a formula and its dependency tree
+ */
+export function getRequiredSensors(
+  targetFormula: FormulaDefinition,
+  allFormulas: FormulaDefinition[],
+  primarySensorId?: string
+): string[] {
+  const { order } = getEvaluationOrder(targetFormula.id, allFormulas)
+  const formulaMap = new Map<string, FormulaDefinition>(allFormulas.map((f) => [f.id, f]))
+  const requiredSensors = new Set<string>()
+
+  const primary = primarySensorId || targetFormula.targetSensor || 'sensor_000'
+  requiredSensors.add(primary)
+
+  for (const id of order) {
+    const f = formulaMap.get(id)
+    if (f) {
+      if (f.targetSensor) requiredSensors.add(f.targetSensor)
+      const refs = extractReferences(f.expression, allFormulas)
+      refs.sensorIds.forEach((s) => requiredSensors.add(s))
+    }
+  }
+
+  return Array.from(requiredSensors)
 }
 
 /**
@@ -220,6 +261,7 @@ export function simulateFormula(
     durationSeconds?: number
     sampleStep?: number
     primarySensorId?: string
+    customSensorDataMap?: Map<string, SensorDataPoint[]>
   } = {}
 ): {
   points: SimulationResultPoint[]
@@ -259,11 +301,15 @@ export function simulateFormula(
 
   logs.push(`Loaded ${requiredSensors.size} sensor telemetry stream(s): [${Array.from(requiredSensors).join(', ')}]`)
 
-  // 3. Load or generate sensor time series
+  // 3. Load sensor time series: Use backend provided dataset if available, fallback to generator
   const sensorDataMap = new Map<string, SensorDataPoint[]>()
   for (const sId of requiredSensors) {
-    const ts = generateSensorTimeSeries(sId, durationSeconds)
-    sensorDataMap.set(sId, ts.points)
+    if (options.customSensorDataMap && options.customSensorDataMap.has(sId)) {
+      sensorDataMap.set(sId, options.customSensorDataMap.get(sId)!)
+    } else {
+      const ts = generateSensorTimeSeries(sId, durationSeconds)
+      sensorDataMap.set(sId, ts.points)
+    }
   }
 
   // 4. Precompile evaluation functions
@@ -284,133 +330,140 @@ export function simulateFormula(
   for (const sId of requiredSensors) {
     historyBuffers.set(sId, [])
   }
-  // Also track history for target formula in case formula references itself or sub-formulas
   for (const id of order) {
     historyBuffers.set(id, [])
   }
 
-  const points: SimulationResultPoint[] = []
-  let sum = 0
-  let min = Number.POSITIVE_INFINITY
-  let max = Number.NEGATIVE_INFINITY
+  const resultPoints: SimulationResultPoint[] = []
+  let totalEvaluated = 0
   let nanCount = 0
-  const computedValues: number[] = []
 
-  const totalSteps = Math.floor(durationSeconds / sampleStep)
-  const primarySensorPoints = sensorDataMap.get(primarySensorId)!
+  const primarySensorSeries = sensorDataMap.get(primarySensorId) || []
+  const availableLength = Math.min(
+    durationSeconds,
+    ...Array.from(sensorDataMap.values()).map((p) => p.length)
+  )
 
-  for (let step = 0; step < totalSteps; step++) {
-    const sIndex = step * sampleStep
-    const basePoint = primarySensorPoints[sIndex] || primarySensorPoints[0]
+  // 6. Step through time series at 1-second interval
+  for (let t = 0; t < availableLength; t++) {
+    // Only capture points according to sampleStep resolution
+    const shouldRecord = t % sampleStep === 0
 
-    // Construct context
-    const ctx: Record<string, any> = {
-      value: basePoint.value,
-      state: basePoint.state,
-      timestamp: basePoint.timestamp,
-    }
+    // Construct evaluation context for this time step
+    const ctx: Record<string, any> = {}
 
-    // Populate current sensor values and update sensor history buffers
-    for (const [sId, sPoints] of sensorDataMap.entries()) {
-      const p = sPoints[sIndex]
-      const val = p ? p.value : 0
+    // Inject sensor telemetry values for current second
+    for (const sId of requiredSensors) {
+      const series = sensorDataMap.get(sId)
+      const val = series && series[t] ? series[t].value : 0
       ctx[sId] = val
 
+      // Update sliding window buffer
       const buf = historyBuffers.get(sId)!
       buf.push(val)
       if (buf.length > 100) buf.shift()
     }
 
-    // Bind window functions using the primary sensor's buffer
-    const primaryBuf = historyBuffers.get(primarySensorId) || []
-    ctx.__window_avg = (n: number) => {
-      const slice = primaryBuf.slice(-Math.min(n, primaryBuf.length))
-      if (slice.length === 0) return ctx.value
-      return slice.reduce((a, b) => a + b, 0) / slice.length
-    }
-    ctx.__window_max = (n: number) => {
-      const slice = primaryBuf.slice(-Math.min(n, primaryBuf.length))
-      if (slice.length === 0) return ctx.value
-      return Math.max(...slice)
-    }
-    ctx.__window_min = (n: number) => {
-      const slice = primaryBuf.slice(-Math.min(n, primaryBuf.length))
-      if (slice.length === 0) return ctx.value
-      return Math.min(...slice)
+    // Default 'value' alias maps to primary sensor
+    const primaryPt = primarySensorSeries[t]
+    const primarySensorVal = primaryPt ? primaryPt.value : 0
+    ctx.value = primarySensorVal
+
+    // Window aggregation helpers
+    ctx.__window_avg = (windowSize: number) => {
+      const buf = historyBuffers.get(primarySensorId) || []
+      const slice = buf.slice(-Math.min(buf.length, windowSize))
+      if (slice.length === 0) return 0
+      const sum = slice.reduce((acc, v) => acc + v, 0)
+      return sum / slice.length
     }
 
-    // Evaluate sub-formulas in topological order
-    const subFormulaVals: Record<string, number> = {}
+    ctx.__window_max = (windowSize: number) => {
+      const buf = historyBuffers.get(primarySensorId) || []
+      const slice = buf.slice(-Math.min(buf.length, windowSize))
+      return slice.length > 0 ? Math.max(...slice) : 0
+    }
 
-    for (const fId of order) {
-      const evalFn = compiledFns.get(fId)
-      if (evalFn) {
+    ctx.__window_min = (windowSize: number) => {
+      const buf = historyBuffers.get(primarySensorId) || []
+      const slice = buf.slice(-Math.min(buf.length, windowSize))
+      return slice.length > 0 ? Math.min(...slice) : 0
+    }
+
+    // Evaluate formulas in topological order
+    const intermediateValues: Record<string, number> = {}
+
+    for (const formulaId of order) {
+      const fn = compiledFns.get(formulaId)
+      if (fn) {
         try {
-          const res = Number(evalFn(ctx))
-          ctx[fId] = res // Available for subsequent formulas in the DAG!
-          subFormulaVals[fId] = res
+          const res = fn(ctx)
+          const numRes = typeof res === 'number' && !isNaN(res) ? res : 0
+          ctx[formulaId] = numRes
+          intermediateValues[formulaId] = numRes
 
-          const buf = historyBuffers.get(fId)
-          if (buf) {
-            buf.push(res)
-            if (buf.length > 100) buf.shift()
-          }
-        } catch (e: any) {
-          ctx[fId] = Number.NaN
-          subFormulaVals[fId] = Number.NaN
+          // Update formula's own history buffer
+          const fBuf = historyBuffers.get(formulaId)!
+          fBuf.push(numRes)
+          if (fBuf.length > 100) fBuf.shift()
+        } catch {
+          ctx[formulaId] = 0
+          intermediateValues[formulaId] = 0
+          nanCount++
         }
       }
     }
 
-    const finalVal = ctx[targetFormula.id] ?? Number.NaN
-    const cleanFinalVal = Number.isFinite(finalVal) ? Math.round(finalVal * 1000) / 1000 : 0
+    const finalOutput = intermediateValues[targetFormula.id] ?? 0
+    if (isNaN(finalOutput)) nanCount++
 
-    if (Number.isNaN(finalVal)) {
-      nanCount++
-    } else {
-      sum += cleanFinalVal
-      if (cleanFinalVal < min) min = cleanFinalVal
-      if (cleanFinalVal > max) max = cleanFinalVal
-      computedValues.push(cleanFinalVal)
+    if (shouldRecord) {
+      const timeLabel = primaryPt
+        ? primaryPt.timestamp
+        : new Date(1791576000000 + t * 1000).toISOString().substring(11, 19)
+
+      resultPoints.push({
+        index: t,
+        timestamp: timeLabel,
+        timestampMs: primaryPt ? primaryPt.timestampMs : 1791576000000 + t * 1000,
+        primarySensorValue: primarySensorVal,
+        computedValue: Math.round(finalOutput * 1000) / 1000,
+        subFormulaValues: intermediateValues,
+      })
     }
 
-    points.push({
-      index: step,
-      timestamp: basePoint.timestamp,
-      timestampMs: basePoint.timestampMs,
-      primarySensorValue: basePoint.value,
-      computedValue: cleanFinalVal,
-      subFormulaValues: subFormulaVals,
-    })
+    totalEvaluated++
   }
 
-  const executionTimeMs = Math.round((performance.now() - startTimeMs) * 100) / 100
-  const count = computedValues.length
-  const avg = count > 0 ? Math.round((sum / count) * 1000) / 1000 : 0
+  const executionTimeMs = Math.round((performance.now() - startTimeMs) * 10) / 10
 
-  // Calculate standard deviation
-  let varianceSum = 0
-  for (const v of computedValues) {
-    varianceSum += Math.pow(v - avg, 2)
+  // 7. Compute aggregate statistical metrics
+  const values = resultPoints.map((p) => p.computedValue)
+  const min = values.length > 0 ? Math.min(...values) : 0
+  const max = values.length > 0 ? Math.max(...values) : 0
+  const sum = values.reduce((acc, v) => acc + v, 0)
+  const avg = values.length > 0 ? sum / values.length : 0
+
+  // Standard deviation
+  const variance =
+    values.length > 0
+      ? values.reduce((acc, v) => acc + Math.pow(v - avg, 2), 0) / values.length
+      : 0
+  const stdDev = Math.sqrt(variance)
+
+  const metrics: SimulationMetrics = {
+    totalPoints: resultPoints.length,
+    executionTimeMs,
+    min: Math.round(min * 100) / 100,
+    max: Math.round(max * 100) / 100,
+    avg: Math.round(avg * 100) / 100,
+    stdDev: Math.round(stdDev * 100) / 100,
+    nanCount,
   }
-  const stdDev = count > 0 ? Math.round(Math.sqrt(varianceSum / count) * 1000) / 1000 : 0
-
-  if (min === Number.POSITIVE_INFINITY) min = 0
-  if (max === Number.NEGATIVE_INFINITY) max = 0
-
-  logs.push(`Completed simulation in ${executionTimeMs}ms (${points.length} points processed)`)
 
   return {
-    points,
-    metrics: {
-      totalPoints: points.length,
-      executionTimeMs,
-      min,
-      max,
-      avg,
-      stdDev,
-      nanCount,
-    },
+    points: resultPoints,
+    metrics,
     resolvedOrder: order,
     logs,
   }

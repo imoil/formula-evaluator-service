@@ -1,12 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { SimulationResult, SimulationConfig } from '../types/formula'
+import type { SensorDataPoint } from '../types/sensor'
 import { useFormulaStore } from './formulaStore'
-import { simulateFormula } from '../services/formulaEngine'
+import { useSensorStore } from './sensorStore'
+import { simulateFormula, getRequiredSensors } from '../services/formulaEngine'
 import { evaluateOnBackend } from '../services/apiClient'
 
 export const useSimulationStore = defineStore('simulation', () => {
   const formulaStore = useFormulaStore()
+  const sensorStore = useSensorStore()
 
   const isRunning = ref(false)
   const currentResult = ref<SimulationResult | null>(null)
@@ -35,7 +38,7 @@ export const useSimulationStore = defineStore('simulation', () => {
 
     try {
       if (config.value.useBackend) {
-        // Run via Spring Boot REST backend
+        // Mode 1: Full evaluation via Spring Boot REST backend (/api/v1/evaluate)
         const primarySensor = config.value.targetSensorId || formula.targetSensor || 'sensor_000'
         const rawPoints = await evaluateOnBackend({
           sensorId: primarySensor,
@@ -46,18 +49,27 @@ export const useSimulationStore = defineStore('simulation', () => {
         })
 
         // Transform backend response into SimulationResult
-        const mappedPoints = rawPoints.map((pt, idx) => ({
-          index: idx,
-          timestamp: pt.timestamp.includes('T') ? pt.timestamp.split('T')[1].replace('Z', '') : pt.timestamp,
-          timestampMs: new Date(pt.timestamp).getTime(),
-          primarySensorValue: pt.value,
-          computedValue: pt.value,
-          subFormulaValues: {},
-        }))
+        const mappedPoints = rawPoints.map((pt, idx) => {
+          const timeStr = typeof pt.timestamp === 'number'
+            ? new Date(pt.timestamp).toISOString().substring(11, 19)
+            : pt.timestamp.includes('T') ? pt.timestamp.split('T')[1].replace('Z', '') : pt.timestamp
+          const ms = typeof pt.timestamp === 'number'
+            ? pt.timestamp
+            : new Date(pt.timestamp).getTime()
+
+          return {
+            index: idx,
+            timestamp: timeStr,
+            timestampMs: ms,
+            primarySensorValue: pt.value,
+            computedValue: pt.value,
+            subFormulaValues: {},
+          }
+        })
 
         const vals = mappedPoints.map((p) => p.computedValue)
-        const min = Math.min(...vals)
-        const max = Math.max(...vals)
+        const min = vals.length > 0 ? Math.min(...vals) : 0
+        const max = vals.length > 0 ? Math.max(...vals) : 0
         const sum = vals.reduce((a, b) => a + b, 0)
         const avg = vals.length > 0 ? sum / vals.length : 0
 
@@ -80,7 +92,23 @@ export const useSimulationStore = defineStore('simulation', () => {
           dataSource: 'BACKEND_API',
         }
       } else {
-        // Run via High-Performance Client Engine
+        // Mode 2: Client JIT Engine with Backend Sensor Telemetry Source
+        // 1. Identify all required sensors across DAG
+        const requiredSensors = getRequiredSensors(
+          formula,
+          formulaStore.formulas,
+          config.value.targetSensorId
+        )
+
+        // 2. Fetch required sensor time series from backend formula-api (with offline fallback)
+        const sensorDataMap = new Map<string, SensorDataPoint[]>()
+        await Promise.all(
+          requiredSensors.map(async (sId) => {
+            const points = await sensorStore.fetchTimeSeries(sId, config.value.durationSeconds)
+            sensorDataMap.set(sId, points)
+          })
+        )
+
         // Give UI a chance to render spinner
         await new Promise((resolve) => setTimeout(resolve, 20))
 
@@ -88,7 +116,10 @@ export const useSimulationStore = defineStore('simulation', () => {
           durationSeconds: config.value.durationSeconds,
           sampleStep: config.value.sampleStep,
           primarySensorId: config.value.targetSensorId,
+          customSensorDataMap: sensorDataMap,
         })
+
+        const isFromBackend = sensorStore.isBackendConnected
 
         currentResult.value = {
           formulaId: formula.id,
@@ -97,7 +128,10 @@ export const useSimulationStore = defineStore('simulation', () => {
           resolvedDependencyOrder: res.resolvedOrder,
           metrics: res.metrics,
           points: res.points,
-          logs: res.logs,
+          logs: [
+            ...res.logs,
+            `Sensor data source: ${isFromBackend ? 'Backend formula-api Mock DataSource (/api/v1/sensors)' : 'Offline Local Fallback'}`,
+          ],
           dataSource: 'CLIENT_ENGINE',
         }
       }

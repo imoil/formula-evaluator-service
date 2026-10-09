@@ -1,3 +1,9 @@
+/**
+ * [OFFLINE / TEST FALLBACK GENERATOR]
+ * Note: The authoritative Single Source of Truth for 100-sensor metadata and normal distribution
+ * time-series data is the backend formula-api service (MockSensorCatalogService).
+ * This module serves solely as an offline fallback and testing utility when the backend is unreachable.
+ */
 import type { SensorMetadata, SensorDataPoint, SensorTimeSeries } from '../types/sensor'
 
 // Mulberry32 seeded pseudo-random generator for fast deterministic sampling
@@ -64,102 +70,71 @@ export const SENSOR_CATALOG: SensorMetadata[] = Array.from({ length: 100 }, (_, 
     stdDev,
     minClamp: Math.max(0, mean - stdDev * 4),
     maxClamp: mean + stdDev * 4,
-    description: `High-frequency industrial ${cat.toLowerCase()} telemetry (N(${mean}, ${stdDev}²))`,
+    description: `Virtual ${cat.toLowerCase()} telemetry stream N(${mean}, ${stdDev}²)`,
   }
 })
 
-// In-memory cache for generated series
-const dataCache = new Map<string, SensorTimeSeries>()
+export function getAllSensors(): SensorMetadata[] {
+  return SENSOR_CATALOG
+}
 
-// Base reference start time: fixed 1-hour interval for reproducible simulation
-const BASE_START_TIME = new Date('2026-10-09T20:00:00Z').getTime()
+export function getSensorById(id: string): SensorMetadata | undefined {
+  return SENSOR_CATALOG.find((s) => s.id === id)
+}
 
 /**
- * Generate 1-hour (3600 seconds) 1-second interval time series data for a specific sensor.
+ * Generate 1-hour time-series data (1 point per second = 3,600 points) with subtle random drift
  */
 export function generateSensorTimeSeries(sensorId: string, durationSeconds = 3600): SensorTimeSeries {
-  const cacheKey = `${sensorId}_${durationSeconds}`
-  if (dataCache.has(cacheKey)) {
-    return dataCache.get(cacheKey)!
-  }
-
-  const metadata = SENSOR_CATALOG.find((s) => s.id === sensorId) || {
+  const metadata = getSensorById(sensorId) || {
     id: sensorId,
-    name: `Sensor ${sensorId}`,
-    category: 'Mechanical',
+    name: `Custom ${sensorId}`,
+    category: 'Mechanical' as const,
     unit: 'units',
     mean: 100,
     stdDev: 5,
-    description: 'Generic normal distribution sensor',
+    description: 'Custom fallback sensor',
   }
 
-  // Derive unique seed from sensor ID
+  // Derive stable seed from sensorId string
   let seed = 42
   for (let i = 0; i < sensorId.length; i++) {
     seed = (seed * 31 + sensorId.charCodeAt(i)) >>> 0
   }
-  const rand = mulberry32(seed)
 
+  const rand = mulberry32(seed)
   const points: SensorDataPoint[] = []
+
+  // Base epoch: 2026-10-09T20:00:00Z
+  const baseTimeMs = 1791576000000
   let subtleDrift = 0
 
   for (let s = 0; s < durationSeconds; s++) {
-    const timestampMs = BASE_START_TIME + s * 1000
-    const date = new Date(timestampMs)
-    const timeStr = date.toTimeString().split(' ')[0] // HH:mm:ss
+    const timestampMs = baseTimeMs + s * 1000
+    const dateObj = new Date(timestampMs)
+    const timeStr = dateObj.toISOString().substring(11, 19) // HH:mm:ss
 
-    // Normal distribution with subtle smooth random-walk drift for physical realism
+    // Random walk drift component
     subtleDrift += (rand() - 0.5) * (metadata.stdDev * 0.05)
-    // Spring back toward mean to avoid unbounded divergence
-    subtleDrift *= 0.995
+    subtleDrift *= 0.995 // mean-reverting decay
 
     let rawVal = sampleNormal(rand, metadata.mean + subtleDrift, metadata.stdDev)
     if (metadata.minClamp !== undefined && rawVal < metadata.minClamp) rawVal = metadata.minClamp
     if (metadata.maxClamp !== undefined && rawVal > metadata.maxClamp) rawVal = metadata.maxClamp
 
-    const roundedVal = Math.round(rawVal * 1000) / 1000
-
     points.push({
+      sensorId,
       timestamp: timeStr,
       timestampMs,
-      sensorId,
-      value: roundedVal,
+      value: Math.round(rawVal * 1000) / 1000,
       state: 0,
       hasInaccurateData: false,
     })
   }
 
-  const result: SensorTimeSeries = {
+  return {
     sensorId,
     metadata,
     points,
   }
-
-  dataCache.set(cacheKey, result)
-  return result
-}
-
-/**
- * Generate data for multiple sensors simultaneously (e.g. For composite formulas)
- */
-export function getMultiSensorTimeSeries(sensorIds: string[], durationSeconds = 3600): Map<string, SensorTimeSeries> {
-  const map = new Map<string, SensorTimeSeries>()
-  for (const id of sensorIds) {
-    map.set(id, generateSensorTimeSeries(id, durationSeconds))
-  }
-  return map
-}
-
-/**
- * Get all 100 sensor catalog entries
- */
-export function getAllSensors(): SensorMetadata[] {
-  return SENSOR_CATALOG
-}
-
-/**
- * Find sensor metadata by ID
- */
-export function getSensorById(id: string): SensorMetadata | undefined {
-  return SENSOR_CATALOG.find((s) => s.id === id)
 }

@@ -20,9 +20,19 @@
 
       <!-- System Quick Status Pills -->
       <div class="d-none d-md-flex align-center gap-2 mr-4">
+        <v-chip
+          size="small"
+          :color="sensorStore.isBackendConnected ? 'success' : 'warning'"
+          variant="tonal"
+        >
+          <v-icon start size="14">
+            {{ sensorStore.isBackendConnected ? 'mdi-server-network' : 'mdi-cloud-off-outline' }}
+          </v-icon>
+          {{ sensorStore.isBackendConnected ? 'formula-api: Online' : 'formula-api: Offline' }}
+        </v-chip>
         <v-chip size="small" color="primary" variant="tonal">
           <v-icon start size="14">mdi-access-point</v-icon>
-          100 Sensors (1h / 1s interval)
+          {{ sensorStore.sensors.length || 100 }} Sensors (1h / 1s interval)
         </v-chip>
         <v-chip size="small" color="secondary" variant="tonal">
           <v-icon start size="14">mdi-function-variant</v-icon>
@@ -74,7 +84,7 @@
             </v-tab>
             <v-tab value="sensors">
               <v-icon start>mdi-access-point-network</v-icon>
-              100 Normal-Distribution Sensors (1s Interval)
+              100 Normal-Distribution Sensors (Source: formula-api)
             </v-tab>
           </v-tabs>
         </v-card>
@@ -117,10 +127,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
 import type { FormulaDefinition } from './types/formula'
 import { useFormulaStore } from './stores/formulaStore'
+import { useSensorStore } from './stores/sensorStore'
 import FormulaList from './components/FormulaList.vue'
 import FormulaEditor from './components/FormulaEditor.vue'
 import FormulaSimulation from './components/FormulaSimulation.vue'
@@ -128,6 +139,7 @@ import SensorDataExplorer from './components/SensorDataExplorer.vue'
 
 const theme = useTheme()
 const formulaStore = useFormulaStore()
+const sensorStore = useSensorStore()
 
 const activeTab = ref<'formulas' | 'simulation' | 'sensors'>('formulas')
 const editorDialog = ref(false)
@@ -172,6 +184,10 @@ function onSelectSensorForSim(sensorId: string) {
 watch(activeTab, async () => {
   await nextTick()
   window.dispatchEvent(new Event('resize'))
+})
+
+onMounted(() => {
+  sensorStore.loadSensors()
 })
 </script>
 

@@ -90,6 +90,16 @@
                 {{ currentFormula?.expression || 'None' }}
               </code>
             </div>
+            <v-chip
+              size="x-small"
+              :color="sensorStore.isBackendConnected ? 'success' : 'warning'"
+              variant="flat"
+            >
+              <v-icon start size="12">
+                {{ sensorStore.isBackendConnected ? 'mdi-server-network' : 'mdi-cloud-off-outline' }}
+              </v-icon>
+              Data Source: {{ sensorStore.isBackendConnected ? 'Backend formula-api' : 'Offline Fallback' }}
+            </v-chip>
           </v-col>
 
           <v-col cols="12" md="4" class="d-flex justify-end align-center">
@@ -274,8 +284,8 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { useFormulaStore } from '../stores/formulaStore'
+import { useSensorStore } from '../stores/sensorStore'
 import { useSimulationStore } from '../stores/simulationStore'
-import { getAllSensors } from '../services/sensorDataGenerator'
 
 const props = withDefaults(
   defineProps<{
@@ -289,8 +299,8 @@ const props = withDefaults(
 )
 
 const formulaStore = useFormulaStore()
+const sensorStore = useSensorStore()
 const simulationStore = useSimulationStore()
-const allSensors = getAllSensors()
 
 const selectedFormulaId = ref<string>(props.initialFormulaId || 'POWER_EFFICIENCY_INDEX')
 const selectedSensorId = ref<string>(props.initialSensorId || 'sensor_000')
@@ -325,7 +335,7 @@ const formulaOptions = computed(() => {
 })
 
 const sensorOptions = computed(() => {
-  return allSensors.map((s) => ({
+  return sensorStore.sensors.map((s) => ({
     title: `${s.id} - ${s.name} (${s.unit}) ~ N(${s.mean}, ${s.stdDev}²)`,
     value: s.id,
   }))
@@ -582,7 +592,7 @@ function exportCsv() {
   document.body.removeChild(link)
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', handleResize)
 
   // Use ResizeObserver to detect when tab becomes visible or container resizes
@@ -599,6 +609,7 @@ onMounted(() => {
     }
   }
 
+  await sensorStore.loadSensors()
   run()
 })
 
