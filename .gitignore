@@ -1,3 +1,9 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Maven
 target/
 pom.xml.tag
 pom.xml.releaseBackup
@@ -7,11 +13,17 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/timing.properties
-# https://maven.apache.org/wrapper/#usage-without-binary-jar
 .mvn/wrapper/maven-wrapper.jar
 
-# Eclipse m2e generated files
-# Eclipse Core
+# IDE & Editor
 .project
-# JDT-specific (Eclipse Java Development Tools)
 .classpath
+.settings/
+.idea/
+*.iml
+.vscode/
+
+# Environment & Agent metadata
+.atlas/
+.agents/
+.gemini/
