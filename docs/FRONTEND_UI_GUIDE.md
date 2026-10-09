@@ -54,8 +54,8 @@ flowchart LR
         QuestDBAdapter --> QuestDB
     end
 
-    Stores ==>|1. 센서 카탈로그 & 시계열 조회 (기본)| Controller2
-    UI -.->|2. 서버 수식 평가 (/api/v1/evaluate)| Controller1
+    Stores ==>|"1. 센서 카탈로그 & 시계열 조회 (기본)"| Controller2
+    UI -.->|"2. 서버 수식 평가 (/api/v1/evaluate)"| Controller1
 ```
 
 ### 주요 기술 스택
@@ -305,19 +305,19 @@ flowchart TD
     ClientAPI -->|"6. GET /api/v1/sensors/{id}/timeseries"| ViteProxy
     ViteProxy -->|"7. 프록시 포워딩"| SensorCtrl
     SensorCtrl -->|"8. 1시간 시계열 생성 요청"| MockCatalog
-    MockCatalog -->>|"9. 3,600건 SensorData 생성 반환"| SensorCtrl
-    SensorCtrl -->>|"10. JSON HTTP 200 OK"| ClientAPI
-    ClientAPI -->>|"11. SensorDataPoint[] 포맷 매핑"| SensStore
-    SensStore -->>|"12. customSensorDataMap 구성"| SimStore
+    MockCatalog -.->|"9. 3,600건 SensorData 생성 반환"| SensorCtrl
+    SensorCtrl -.->|"10. JSON HTTP 200 OK"| ClientAPI
+    ClientAPI -.->|"11. SensorDataPoint[] 포맷 매핑"| SensStore
+    SensStore -.->|"12. customSensorDataMap 구성"| SimStore
 
     SimStore -->|"13. simulateFormula(formula, allFormulas, sensorMap)"| EngEval
     EngEval -->|"14. 수식 함수 JIT 컴파일"| EngJIT
     EngJIT -.->|"컴파일된 함수 포인터"| EngEval
-    EngEval -->>|"15. SimulationResult (points, metrics, logs)"| SimStore
+    EngEval -.->|"15. SimulationResult (points, metrics, logs)"| SimStore
 
-    SimStore -->>|"16. currentResult 반응형 상태 갱신"| ViewComp
+    SimStore -.->|"16. currentResult 반응형 상태 갱신"| ViewComp
     ViewComp -->|"17. renderChart() -> setOption(option)"| ChartComp
-    ChartComp -->>|"18. 3,600초 인터랙티브 텔레메트리 곡선 표시"| User
+    ChartComp -.->|"18. 3,600초 인터랙티브 텔레메트리 곡선 표시"| User
 ```
 
 #### ② 엔드투엔드 상세 실행 시퀀스 다이어그램 (End-to-End Sequence Diagram)
