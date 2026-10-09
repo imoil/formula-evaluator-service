@@ -95,8 +95,12 @@ class OnDemandEvaluationServiceTest {
 
         List<Map<String, Object>> allEnvs = envCaptor.getAllValues();
         // 1번째 호출 시 window_data = [5.0]
-        assertThat((List<?>) allEnvs.get(0).get("window_data")).containsExactly(5.0);
+        @SuppressWarnings("unchecked")
+        List<Double> window1 = (List<Double>) allEnvs.get(0).get("window_data");
+        assertThat(window1).containsExactly(5.0);
         // 2번째 호출 시 window_data = [5.0, 15.0]
-        assertThat((List<?>) allEnvs.get(1).get("window_data")).containsExactly(5.0, 15.0);
+        @SuppressWarnings("unchecked")
+        List<Double> window2 = (List<Double>) allEnvs.get(1).get("window_data");
+        assertThat(window2).containsExactly(5.0, 15.0);
     }
 }
