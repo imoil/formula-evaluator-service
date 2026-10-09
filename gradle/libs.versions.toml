@@ -4,11 +4,8 @@ springBoot = "3.5.16"
 springDependencyManagement = "1.1.7"
 flink = "1.19.0"
 flinkKafka = "3.2.0-1.19"
-aviator = "5.4.1"
+aviator = "5.9.0"
 questdbClient = "1.0.1"
-postgresql = "42.7.2"
-lombok = "1.18.30"
-testcontainers = "1.19.7"
 
 [libraries]
 # Spring Boot Starters
@@ -20,10 +17,10 @@ spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
 
 # Database / QuestDB
 questdb-client = { module = "org.questdb:questdb-client", version.ref = "questdbClient" }
-postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+postgresql = { module = "org.postgresql:postgresql" }
 
 # Expression Engine
-aviator = { module = "com.googlecode.aviator:aviator", version.ref = "aviator" }
+aviator = { module = "io.github.aviatorscript:aviator", version.ref = "aviator" }
 
 # Apache Flink
 flink-java = { module = "org.apache.flink:flink-java", version.ref = "flink" }
@@ -34,11 +31,11 @@ flink-statebackend-rocksdb = { module = "org.apache.flink:flink-statebackend-roc
 flink-test-utils = { module = "org.apache.flink:flink-test-utils", version.ref = "flink" }
 
 # Testcontainers
-testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
-testcontainers-kafka = { module = "org.testcontainers:kafka", version.ref = "testcontainers" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter" }
+testcontainers-kafka = { module = "org.testcontainers:kafka" }
 
 # Lombok
-lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
+lombok = { module = "org.projectlombok:lombok" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

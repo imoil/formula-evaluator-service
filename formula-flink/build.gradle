@@ -14,6 +14,7 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind'
 
     // Testing
+    testImplementation project(':formula-api')
     testImplementation libs.flink.test.utils
     testImplementation libs.testcontainers.junit.jupiter
     testImplementation libs.testcontainers.kafka
