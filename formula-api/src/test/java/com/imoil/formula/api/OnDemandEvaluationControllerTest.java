@@ -6,8 +6,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -26,7 +26,7 @@ class OnDemandEvaluationControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private OnDemandEvaluationService evaluationService;
 
     @Test
@@ -52,10 +52,10 @@ class OnDemandEvaluationControllerTest {
         // when & then: MockMvc 요청 수행 및 JSON 프로퍼티 assertion
         mockMvc.perform(get("/api/v1/evaluate")
                         .param("sensorId", "sensor_temp")
-                        .param("formula", "value * 1.5")
+                        .param("expression", "value * 1.5")
                         .param("startTime", "2026-03-01T00:00:00")
                         .param("endTime", "2026-03-01T01:00:00")
-                        .param("resolution", "1m")
+                        .param("sampleBy", "1m")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
