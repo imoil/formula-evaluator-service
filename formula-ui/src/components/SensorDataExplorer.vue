@@ -18,16 +18,26 @@
 
           <v-col cols="12" md="5">
             <v-chip-group v-model="selectedCategory" selected-class="text-primary font-weight-bold" mandatory>
-              <v-chip value="ALL" size="small" variant="tonal">All (100)</v-chip>
-              <v-chip v-for="cat in categories" :key="cat" :value="cat" size="small" variant="tonal">
+              <v-chip value="ALL" size="small" variant="tonal">All ({{ sensorStore.sensors.length }})</v-chip>
+              <v-chip v-for="cat in sensorStore.categories" :key="cat" :value="cat" size="small" variant="tonal">
                 {{ cat }}
               </v-chip>
             </v-chip-group>
           </v-col>
 
-          <v-col cols="12" md="3" class="text-right">
+          <v-col cols="12" md="3" class="text-right d-flex align-center justify-end gap-2">
+            <v-chip
+              size="x-small"
+              :color="sensorStore.isBackendConnected ? 'success' : 'warning'"
+              variant="flat"
+            >
+              <v-icon start size="12">
+                {{ sensorStore.isBackendConnected ? 'mdi-server-network' : 'mdi-cloud-off-outline' }}
+              </v-icon>
+              {{ sensorStore.isBackendConnected ? 'Backend formula-api' : 'Offline Fallback' }}
+            </v-chip>
             <span class="text-caption text-medium-emphasis">
-              Sampling: <strong>1 pt / sec</strong> · Duration: <strong>1 Hour (3,600s)</strong>
+              Sampling: <strong>1 pt / sec</strong>
             </span>
           </v-col>
         </v-row>
@@ -40,8 +50,18 @@
         <v-card class="border elevation-0" rounded="lg">
           <v-toolbar color="surface" density="compact" class="border-b px-4">
             <v-toolbar-title class="text-caption font-weight-bold text-uppercase">
-              IoT Sensor Catalog (Normal Distribution N(μ, σ²))
+              IoT Sensor Catalog (Source: {{ sensorStore.isBackendConnected ? 'formula-api Mock DataSource' : 'Fallback Generator' }})
             </v-toolbar-title>
+            <v-spacer></v-spacer>
+            <v-btn
+              size="x-small"
+              variant="text"
+              icon
+              :loading="sensorStore.isLoading"
+              @click="sensorStore.loadSensors(true)"
+            >
+              <v-icon size="small">mdi-refresh</v-icon>
+            </v-btn>
           </v-toolbar>
           <v-table density="compact" hover>
             <thead>
@@ -145,7 +165,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import type { SensorMetadata } from '../types/sensor'
-import { getAllSensors, generateSensorTimeSeries } from '../services/sensorDataGenerator'
+import { useSensorStore } from '../stores/sensorStore'
 
 const props = withDefaults(
   defineProps<{
@@ -160,18 +180,16 @@ defineEmits<{
   (e: 'select-sensor-for-sim', sensorId: string): void
 }>()
 
-const sensors = getAllSensors()
+const sensorStore = useSensorStore()
 const searchQuery = ref('')
 const selectedCategory = ref('ALL')
-const previewSensor = ref<SensorMetadata | null>(sensors[0])
+const previewSensor = ref<SensorMetadata | null>(null)
 const previewChartRef = ref<HTMLDivElement | null>(null)
 let previewChartInstance: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
-const categories = Array.from(new Set(sensors.map((s) => s.category)))
-
 const filteredSensors = computed(() => {
-  return sensors.filter((s) => {
+  return sensorStore.sensors.filter((s) => {
     if (selectedCategory.value !== 'ALL' && s.category !== selectedCategory.value) {
       return false
     }
@@ -217,7 +235,7 @@ async function selectPreviewSensor(s: SensorMetadata) {
   renderPreviewChart()
 }
 
-function renderPreviewChart() {
+async function renderPreviewChart() {
   if (!previewChartRef.value || !previewSensor.value) return
 
   if (previewChartRef.value.clientWidth === 0) {
@@ -228,10 +246,10 @@ function renderPreviewChart() {
     previewChartInstance = echarts.init(previewChartRef.value, 'dark')
   }
 
-  // Load 1-hour time series for preview (downsampled to 360 points for quick preview)
-  const ts = generateSensorTimeSeries(previewSensor.value.id, 3600)
+  // Load 1-hour time series from backend sensorStore (downsampled to 360 points for quick preview)
+  const fullPoints = await sensorStore.fetchTimeSeries(previewSensor.value.id, 3600)
   const sampleStep = 10
-  const sampled = ts.points.filter((_, idx) => idx % sampleStep === 0)
+  const sampled = fullPoints.filter((_, idx) => idx % sampleStep === 0)
 
   const timestamps = sampled.map((p) => p.timestamp)
   const values = sampled.map((p) => p.value)
@@ -294,7 +312,7 @@ function handleResize() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', handleResize)
 
   if (typeof ResizeObserver !== 'undefined') {
@@ -310,7 +328,12 @@ onMounted(() => {
     }
   }
 
-  selectPreviewSensor(sensors[0])
+  await sensorStore.loadSensors()
+  if (sensorStore.sensors.length > 0) {
+    previewSensor.value = sensorStore.sensors[0]
+    await nextTick()
+    renderPreviewChart()
+  }
 })
 
 onBeforeUnmount(() => {
