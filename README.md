@@ -59,7 +59,7 @@ flowchart TD
         Controller1["OnDemandEvaluationController (/api/v1/evaluate)"]
         Controller2["SensorController (/api/v1/sensors)"]
         Service["OnDemandEvaluationService"]
-        Catalog["MockSensorCatalogService (100개 센서 메타데이터)"]
+        Catalog["MockSensorCatalogService (100개 센서 메타데이터 원천)"]
         AdapterLayer["TimeSeriesDataSourceAdapter 인터페이스"]
         QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 다운샘플링)"]
         MockAdapter["MockNormalDistributionDataSourceAdapter (100개 센서 Mock)"]
@@ -67,7 +67,8 @@ flowchart TD
         BufferAdapter["StreamingBufferDataSourceAdapter"]
         AviatorJIT2["AviatorScript Engine (메모리 버퍼 연계 평가)"]
 
-        ClientReq --> Controller1 & Controller2
+        ClientReq --> Controller1
+        ClientReq ==>|센서 카탈로그 & 시계열 스트림 조회| Controller2
         Controller2 --> Catalog
         Controller1 --> Service
         Service --> AdapterLayer
@@ -106,9 +107,9 @@ flowchart BT
 | :--- | :--- | :--- | :--- |
 | **`formula-core`** | Java Library | Lombok | 외부 프레임워크 의존성이 없는 순수 도메인 모델 (`SensorData`, `DynamicRule`) 정의 |
 | **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일 및 바이트코드 캐싱, 커스텀 윈도우 함수 (`window_avg`, `window_max`) 바인딩 |
-| **`formula-api`** | Spring Boot Application | Spring Boot 3.5, Spring Data JPA, PostgreSQL Wire | 온디맨드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 센서 카탈로그 API (`/api/v1/sensors`), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
+| **`formula-api`** | Spring Boot Application | Spring Boot 3.5, Spring Data JPA, PostgreSQL Wire | 온디맨드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 센서 카탈로그 API (`/api/v1/sensors`, Single Source of Truth), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
 | **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19, RocksDB, Kafka Connector | 분산 스트리밍 평가 파이프라인, Broadcast State 패턴 기반 룰 전파, QuestDB ILP 비동기 적재 |
-| **`formula-ui`** | Frontend SPA | Vite, Vue 3, Vuetify 4, ECharts, Pinia, pnpm | 온디맨드 수식 작성/저장, 합성 수식(수식 간 호출 DAG), 100개 센서 1초 간격 정규분포 시뮬레이션 및 시계열 시각화 |
+| **`formula-ui`** | Frontend SPA | Vite, Vue 3, Vuetify 4, ECharts, Pinia, pnpm | 온디맨드 수식 작성/저장, 합성 수식(수식 간 호출 DAG), `formula-api` Mock DataSource 연동 100개 센서 1초 간격 시뮬레이션 및 시계열 시각화 |
 
 ---
 
@@ -181,7 +182,7 @@ classDiagram
 Docker 설치 없이 백엔드 Mock 어댑터와 프론트엔드 UI를 실행하여 바로 수식 작성 및 100개 센서 시뮬레이션을 체험할 수 있습니다.
 
 ```powershell
-# 터미널 1: 백엔드 실행 (Mock DataSource 프로파일)
+# 터미널 1: 백엔드 실행 (Mock DataSource 프로파일, Source of Truth)
 # Windows PowerShell:
 gradle :formula-api:bootRun --args="--evaluation.datasource.type=MOCK"
 # Linux / macOS Bash:
@@ -193,7 +194,7 @@ gradle :formula-api:bootRun --args="--evaluation.datasource.type=MOCK"
 cd formula-ui
 pnpm install
 pnpm dev
-# 브라우저에서 http://localhost:3000 접속
+# 브라우저에서 http://localhost:3000 접속 시 formula-api: Online 뱃지 활성화
 ```
 
 상세한 UI 사용법, DAG 수식 작성법 및 설정은 [FRONTEND_UI_GUIDE.md](docs/FRONTEND_UI_GUIDE.md)를 참고하세요.
@@ -261,7 +262,7 @@ Content-Type: application/json
 [
   {
     "sensorId": "sensor_000_ondemand_eval",
-    "timestamp": 1710000000000,
+    "timestamp": 1791576000000,
     "value": 125.8,
     "state": 0,
     "hasInaccurateData": false
