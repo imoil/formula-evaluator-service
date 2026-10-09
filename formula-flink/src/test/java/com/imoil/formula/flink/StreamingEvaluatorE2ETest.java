@@ -26,7 +26,7 @@ import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(classes = com.imoil.formula.FormulaEvaluatorApplication.class)
 public class StreamingEvaluatorE2ETest {
 
