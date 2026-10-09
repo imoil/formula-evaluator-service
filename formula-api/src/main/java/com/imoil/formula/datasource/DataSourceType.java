@@ -6,5 +6,6 @@ package com.imoil.formula.datasource;
 public enum DataSourceType {
     QUESTDB,
     RDBMS,
-    STREAMING
+    STREAMING,
+    MOCK
 }
