@@ -28,6 +28,12 @@ subprojects {
         }
     }
 
+    configurations.all {
+        resolutionStrategy.capabilitiesResolution.withCapability('org.lz4:lz4-java') {
+            selectHighestVersion()
+        }
+    }
+
     dependencies {
         compileOnly libs.lombok
         annotationProcessor libs.lombok
@@ -36,6 +42,7 @@ subprojects {
         testAnnotationProcessor libs.lombok
 
         testImplementation libs.spring.boot.starter.test
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 
     test {

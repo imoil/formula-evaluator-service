@@ -1,5 +1,9 @@
+plugins {
+    id 'java-library'
+}
+
 dependencies {
+    api libs.aviator
     implementation project(':formula-core')
-    implementation libs.aviator
     implementation 'org.springframework:spring-context'
 }
