@@ -10,6 +10,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/evaluate")
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class OnDemandEvaluationController {
 

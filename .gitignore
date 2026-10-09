@@ -81,3 +81,9 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 .mvn/
+
+# Frontend & Node
+node_modules/
+formula-ui/dist/
+formula-ui/node_modules/
+
