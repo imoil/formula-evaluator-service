@@ -36,12 +36,12 @@ flowchart LR
         Controller1["OnDemandEvaluationController (/api/v1/evaluate)"]
         Controller2["SensorController (/api/v1/sensors)"]
         Service["OnDemandEvaluationService"]
-        Catalog["MockSensorCatalogService<br/>(100개 센서 메타데이터 & 1시간 정규분포 원천)"]
+        Catalog["MockSensorCatalogService (100개 센서 메타데이터 & 1시간 정규분포 원천)"]
         Aviator["AviatorScript JIT 컴파일러"]
         AdapterSelector["TimeSeriesDataSourceAdapter 인터페이스"]
         
-        MockAdapter["MockNormalDistributionDataSourceAdapter<br/>(100개 센서 N(μ, σ²) 시계열 제공)"]
-        QuestDBAdapter["QuestDBDataSourceAdapter<br/>(SAMPLE BY 다운샘플링)"]
+        MockAdapter["MockNormalDistributionDataSourceAdapter (100개 센서 N(μ, σ²) 시계열 제공)"]
+        QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 다운샘플링)"]
         QuestDB[("QuestDB 9.3.4 (ILP / PGWire)")]
 
         Controller1 & Controller2 --> Service
@@ -104,7 +104,7 @@ formula-evaluator-service/
 │   │   │   └── sensorDataGenerator.ts   # [오프라인/테스트 Fallback] 로컬 시계열 생성기
 │   │   ├── stores/
 │   │   │   ├── formulaStore.ts          # 수식 정의 CRUD, localStorage 영속화
-│   │   │   ├── sensorStore.ts           # 백엔드 formula-api 센서 카탈로그 및 시계열 스토어 (New)
+│   │   │   ├── sensorStore.ts           # 백엔드 formula-api 센서 카탈로그 및 시계열 스토어
 │   │   │   └── simulationStore.ts       # 백엔드 센서 스트림 기반 시뮬레이션 조정자
 │   │   ├── test/
 │   │   │   ├── formulaEngine.test.ts    # 수식 엔진 및 DAG 위상 정렬 Vitest 단위 테스트
@@ -134,17 +134,17 @@ flowchart TD
     end
 
     subgraph Level1["1단계 기초 수식"]
-        TF["TEMP_FAHRENHEIT<br/>sensor_000 * 1.8 + 32"]
-        ST["SMOOTHED_TEMP<br/>window_avg(10)"]
-        PD["PRESSURE_DELTA<br/>abs(sensor_001 - sensor_008)"]
+        TF["TEMP_FAHRENHEIT: sensor_000 * 1.8 + 32"]
+        ST["SMOOTHED_TEMP: window_avg(10)"]
+        PD["PRESSURE_DELTA: abs(sensor_001 - sensor_008)"]
     end
 
     subgraph Level2["2단계 파생 수식 (다른 수식 호출)"]
-        NH["NORMALIZED_HEAT<br/>(TEMP_FAHRENHEIT - 32) / 1.8 * 0.95"]
+        NH["NORMALIZED_HEAT: (TEMP_FAHRENHEIT - 32) / 1.8 * 0.95"]
     end
 
     subgraph Level3["3단계 종합 지표 (복합 호출 & 조건 분기)"]
-        PEI["POWER_EFFICIENCY_INDEX<br/>(NORMALIZED_HEAT > 60 ? NORMALIZED_HEAT * 1.15 : NORMALIZED_HEAT) + (SMOOTHED_TEMP * 0.2)"]
+        PEI["POWER_EFFICIENCY_INDEX: (NORMALIZED_HEAT > 60 ? NORMALIZED_HEAT * 1.15 : NORMALIZED_HEAT) + (SMOOTHED_TEMP * 0.2)"]
     end
 
     S0 --> TF
@@ -251,6 +251,130 @@ flowchart TD
     "hasInaccurateData": false
   }
 ]
+```
+
+---
+
+### 3.4 엔드투엔드 데이터 파이프라인 및 모듈 간 관계도 (Data Pipeline & Sequence)
+
+사용자가 화면에서 시뮬레이션을 실행했을 때, 백엔드 API로부터 센서 데이터를 요청하여 수식 계산 엔진에 주입하고, 최종 계산 결과를 추출하여 ECharts 차트에 시각화하기까지의 전체 모듈 간 상호작용 및 파이프라인입니다.
+
+#### ① 모듈 간 상호작용 및 데이터 흐름도 (Component & Module Interaction Flowchart)
+
+```mermaid
+flowchart TD
+    User(["사용자 (UI 조작)"])
+
+    subgraph PresentationLayer["1. 프레젠테이션 레이어 (View)"]
+        ViewComp["FormulaSimulation.vue (시뮬레이션 스튜디오 화면)"]
+        ChartComp["Apache ECharts 6.1 (DataZoom 슬라이더 + 멀티 시리즈 캔버스)"]
+    end
+
+    subgraph StoreLayer["2. 상태 관리 레이어 (Pinia Stores)"]
+        SimStore["simulationStore.ts (시뮬레이션 실행 제어자)"]
+        FormStore["formulaStore.ts (수식 정의 & DAG 의존성 캐시)"]
+        SensStore["sensorStore.ts (센서 카탈로그 & 시계열 데이터 캐시)"]
+    end
+
+    subgraph ClientNetworkLayer["3. 네트워크 및 API 클라이언트 레이어"]
+        ClientAPI["apiClient.ts (fetchBackendSensorTimeSeries)"]
+        ViteProxy["Vite Reverse Proxy (포트 3000 /api -> 포트 8080)"]
+    end
+
+    subgraph BackendSourceLayer["4. 백엔드 데이터 소스 레이어 (formula-api : Source of Truth)"]
+        SensorCtrl["SensorController.java (/api/v1/sensors/{id}/timeseries)"]
+        MockCatalog["MockSensorCatalogService.java (1시간 3,600건 정규분포 시계열 생성기)"]
+    end
+
+    subgraph CalculationLayer["5. 수식 계산 엔진 레이어 (Client JIT Engine)"]
+        EngDAG["formulaEngine.ts: getRequiredSensors & getEvaluationOrder (DAG 위상 정렬)"]
+        EngJIT["formulaEngine.ts: createEvalFunction (JIT 함수 컴파일)"]
+        EngEval["formulaEngine.ts: simulateFormula (3,600초 시계열 순회 & 슬라이딩 윈도우 집계)"]
+    end
+
+    %% Flow connections
+    User -->|"[Simulate] 버튼 클릭"| ViewComp
+    ViewComp -->|"1. runSimulation(config)"| SimStore
+
+    SimStore -->|"2. 대상 수식 및 전체 수식 목록 조회"| FormStore
+    SimStore -->|"3. 필요 센서 목록 식별"| EngDAG
+    EngDAG -.->|"필요 센서 ID 목록 반환"| SimStore
+
+    SimStore -->|"4. fetchTimeSeries(sensorId) 병렬 요청"| SensStore
+    SensStore -->|"5. HTTP 호출 위임"| ClientAPI
+    ClientAPI -->|"6. GET /api/v1/sensors/{id}/timeseries"| ViteProxy
+    ViteProxy -->|"7. 프록시 포워딩"| SensorCtrl
+    SensorCtrl -->|"8. 1시간 시계열 생성 요청"| MockCatalog
+    MockCatalog -->>|"9. 3,600건 SensorData 생성 반환"| SensorCtrl
+    SensorCtrl -->>|"10. JSON HTTP 200 OK"| ClientAPI
+    ClientAPI -->>|"11. SensorDataPoint[] 포맷 매핑"| SensStore
+    SensStore -->>|"12. customSensorDataMap 구성"| SimStore
+
+    SimStore -->|"13. simulateFormula(formula, allFormulas, sensorMap)"| EngEval
+    EngEval -->|"14. 수식 함수 JIT 컴파일"| EngJIT
+    EngJIT -.->|"컴파일된 함수 포인터"| EngEval
+    EngEval -->>|"15. SimulationResult (points, metrics, logs)"| SimStore
+
+    SimStore -->>|"16. currentResult 반응형 상태 갱신"| ViewComp
+    ViewComp -->|"17. renderChart() -> setOption(option)"| ChartComp
+    ChartComp -->>|"18. 3,600초 인터랙티브 텔레메트리 곡선 표시"| User
+```
+
+#### ② 엔드투엔드 상세 실행 시퀀스 다이어그램 (End-to-End Sequence Diagram)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 사용자
+    participant UI as FormulaSimulation.vue
+    participant SimStore as simulationStore
+    participant SensorStore as sensorStore
+    participant API as apiClient.ts
+    participant Backend as formula-api (Mock TSDB)
+    participant Engine as formulaEngine.ts
+    participant ECharts as Apache ECharts
+
+    User->>UI: 수식 및 대상 센서 선택 후 [Simulate] 클릭
+    UI->>SimStore: runSimulation({ formulaId, durationSeconds: 3600, sampleStep: 1 })
+    
+    rect rgb(23, 37, 84)
+    note right of SimStore: 1단계: 수식 의존성 분석 및 필요 센서 목록 식별
+    SimStore->>Engine: getRequiredSensors(targetFormula, allFormulas)
+    Engine-->>SimStore: 필수 센서 목록 반환 (예: ['sensor_000', 'sensor_001'])
+    end
+
+    rect rgb(30, 41, 59)
+    note right of SimStore: 2단계: 백엔드 API로부터 시계열 데이터 병렬 패치
+    SimStore->>SensorStore: fetchTimeSeries(sensorId) 병렬 호출 (Promise.all)
+    SensorStore->>API: fetchBackendSensorTimeSeries(sensorId)
+    API->>Backend: GET /api/v1/sensors/{sensorId}/timeseries
+    Backend-->>API: HTTP 200 OK (3,600개 원본 포인트 JSON)
+    API-->>SensorStore: SensorDataPoint[] 배열 매핑
+    SensorStore-->>SimStore: customSensorDataMap에 주입 완료
+    end
+
+    rect rgb(19, 78, 74)
+    note right of SimStore: 3단계: 수식 JIT 컴파일 및 3,600초 시계열 순회 계산
+    SimStore->>Engine: simulateFormula(targetFormula, allFormulas, { customSensorDataMap })
+    Engine->>Engine: getEvaluationOrder() (위상 정렬: 하위 수식 -> 상위 수식)
+    Engine->>Engine: createEvalFunction() (JIT 자바스크립트 함수 생성)
+    loop 매 1초 순회 (t = 0 .. 3,599)
+        Engine->>Engine: 슬라이딩 윈도우 버퍼 갱신 (최근 100초 유지)
+        Engine->>Engine: 윈도우 함수 계산 (window_avg, window_max, window_min)
+        Engine->>Engine: 하위 수식 계산 결과 -> 컨텍스트 적재 (ctx[subId] = val)
+        Engine->>Engine: 최종 상위 수식 계산 결과 도출
+    end
+    Engine->>Engine: 통계 지표 산출 (min, max, avg, stdDev, executionTimeMs)
+    Engine-->>SimStore: SimulationResult 객체 반환
+    end
+
+    rect rgb(67, 24, 255, 0.1)
+    note right of UI: 4단계: 화면 반응형 반영 및 ECharts 렌더링
+    SimStore-->>UI: currentResult 반응형 상태 업데이트
+    UI->>ECharts: renderChart() (setOption으로 series, DataZoom, 축 바인딩)
+    UI->>ECharts: resize() (컨테이너 100% 너비 맞춤)
+    ECharts-->>User: 1시간 시계열 인터랙티브 차트 및 KPI 카드 렌더링 완료
+    end
 ```
 
 ---
