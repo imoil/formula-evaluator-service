@@ -1,0 +1,21 @@
+plugins {
+    alias(libs.plugins.spring.boot)
+}
+
+dependencies {
+    implementation project(':formula-core')
+    implementation project(':formula-engine')
+
+    // Spring Boot Starters
+    implementation libs.spring.boot.starter.web
+    implementation libs.spring.boot.starter.data.jpa
+    implementation libs.spring.kafka
+
+    // Database & Time-Series
+    implementation libs.questdb.client
+    runtimeOnly libs.postgresql
+
+    // Testing
+    testImplementation libs.testcontainers.junit.jupiter
+    testImplementation libs.testcontainers.kafka
+}
