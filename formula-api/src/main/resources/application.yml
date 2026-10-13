@@ -5,8 +5,8 @@ spring:
   datasource:
     # QuestDB PostgreSQL Wire Protocol
     url: jdbc:postgresql://localhost:8812/qdb
-    username: admin
-    password: quest
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:

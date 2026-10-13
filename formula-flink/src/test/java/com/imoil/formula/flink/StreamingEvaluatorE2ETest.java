@@ -43,6 +43,8 @@ public class StreamingEvaluatorE2ETest {
         // QuestDB 동적 포트(Testcontainers) 매핑
         registry.add("questdb.client.url", () -> String.format("http::addr=%s:%d;", questDB.getHost(), questDB.getMappedPort(9000)));
         registry.add("spring.datasource.url", () -> String.format("jdbc:postgresql://%s:%d/qdb", questDB.getHost(), questDB.getMappedPort(8812)));
+        registry.add("spring.datasource.username", () -> "admin");
+        registry.add("spring.datasource.password", () -> "quest");
         registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
     }
 
