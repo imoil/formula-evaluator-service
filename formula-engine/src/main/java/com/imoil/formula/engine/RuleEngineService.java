@@ -18,6 +18,9 @@ public class RuleEngineService {
      * 표현식은 내부적으로 컴파일되어 LRU 캐싱됩니다. (GC 오버헤드 최소화)
      */
     public double evaluate(String expressionText, Map<String, Object> env) {
+        if (expressionText == null || expressionText.trim().isEmpty()) {
+            throw new IllegalArgumentException("Expression text must not be null or empty.");
+        }
         Expression expression = evaluator.compile(expressionText, true); // true = Use Cache
         Object result = expression.execute(env);
         
