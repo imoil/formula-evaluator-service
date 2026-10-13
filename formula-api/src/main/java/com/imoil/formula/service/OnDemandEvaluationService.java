@@ -56,7 +56,7 @@ public class OnDemandEvaluationService {
             env.put("value", data.getValue());
             env.put("state", data.getState());
             // 히스토리 배열을 넘김으로써 `window_avg(n)` 커스텀 윈도우 함수가 런타임에 처리되도록 함
-            env.put("window_data", new ArrayList<>(windowHistory)); 
+            env.put("window_data", windowHistory);
             
             try {
                 // Rule 엔진 평가
