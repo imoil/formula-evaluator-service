@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: formula-evaluator-service
+
+  datasource:
+    # QuestDB PostgreSQL Wire Protocol
+    url: jdbc:postgresql://localhost:8812/qdb
+    username: admin
+    password: quest
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      # QuestDB는 스키마 자동 생성을 완벽히 지원하지 않으므로 validate 또는 none을 권장합니다.
+      ddl-auto: none
+    show-sql: true
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: formula-evaluator-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+questdb:
+  client:
+    # ILP 클라이언트 설정 문자열 (HTTP 또는 TCP)
+    # auto_flush_interval: 배치 버퍼링 튜닝 (1초/1000ms 마다 플러시) 지정
+    url: "http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=50000;"
+
+# 온디맨드 평가 시 사용할 데이터 소스 설정 (QUESTDB, RDBMS, STREAMING)
+evaluation:
+  datasource:
+    type: QUESTDB

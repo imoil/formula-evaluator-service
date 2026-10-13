@@ -1,0 +1,6 @@
+rootProject.name = 'formula-evaluator-service'
+
+include 'formula-core'
+include 'formula-engine'
+include 'formula-flink'
+include 'formula-api'
