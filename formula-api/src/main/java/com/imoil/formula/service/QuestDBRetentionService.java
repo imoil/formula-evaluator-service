@@ -30,6 +30,12 @@ public class QuestDBRetentionService {
         LocalDateTime targetDate = LocalDateTime.now().minusDays(30);
         String partitionName = targetDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
 
+        // SQL 인젝션 방지를 위한 파티션 명칭 검증 (yyyy-MM-dd 형식)
+        if (!partitionName.matches("^\\d{4}-\\d{2}-\\d{2}$")) {
+            log.error("Invalid partition name format: '{}'. Aborting drop partition.", partitionName);
+            return;
+        }
+
         try {
             log.info("Executing cleanup target. Trying to drop QuestDB partition: '{}'", partitionName);
             // QuestDB 전용 DDL: 파티션 드롭 구문 사용 
