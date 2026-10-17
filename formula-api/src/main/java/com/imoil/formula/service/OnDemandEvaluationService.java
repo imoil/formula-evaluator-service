@@ -3,6 +3,7 @@ package com.imoil.formula.service;
 import com.imoil.formula.datasource.TimeSeriesDataSourceAdapter;
 import com.imoil.formula.datasource.TimeSeriesQueryCriteria;
 import com.imoil.formula.domain.SensorData;
+import com.imoil.formula.engine.ExpressionValidator;
 import com.imoil.formula.engine.RuleEngineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,8 @@ public class OnDemandEvaluationService {
     public List<SensorData> evaluateOverTimeRange(String sensorId, String expression, 
                                                   String startTime, String endTime, String sampleBy) {
         
+        ExpressionValidator.validate(expression);
+
         TimeSeriesQueryCriteria criteria = TimeSeriesQueryCriteria.builder()
                 .sensorId(sensorId)
                 .startTime(startTime)

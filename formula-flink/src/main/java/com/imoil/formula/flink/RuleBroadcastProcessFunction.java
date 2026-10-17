@@ -152,10 +152,14 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         // 룰 수식에 히스토리 데이터(윈도우)가 필요한지 미리 계산하여 캐싱 (processElement 부하 감소)
         if (rule != null && rule.getExpression() != null) {
             String expr = rule.getExpression();
-            rule.setUsesWindow(expr.contains("window_") || expr.contains("previous_"));
+            try {
+                com.imoil.formula.engine.ExpressionValidator.validate(expr);
+                rule.setUsesWindow(expr.contains("window_") || expr.contains("previous_"));
+                BroadcastState<String, DynamicRule> broadcastState = ctx.getBroadcastState(ruleStateDescriptor);
+                broadcastState.put(rule.getTargetSensorId(), rule);
+            } catch (Exception e) {
+                log.error("Invalid or unsafe rule expression received for target sensor: {}", rule.getTargetSensorId(), e);
+            }
         }
-
-        BroadcastState<String, DynamicRule> broadcastState = ctx.getBroadcastState(ruleStateDescriptor);
-        broadcastState.put(rule.getTargetSensorId(), rule);
     }
 }

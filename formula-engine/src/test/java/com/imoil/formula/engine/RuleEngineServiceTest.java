@@ -127,4 +127,20 @@ class RuleEngineServiceTest {
         assertThatThrownBy(() -> ruleEngineService.evaluate("let i = 0; while(true) { i = i + 1; } return i;", env))
                 .isInstanceOf(Exception.class);
     }
+
+    @Test
+    @DisplayName("보안: 대입 연산자(=) 시도 차단")
+    void testMaliciousAssignment() {
+        Map<String, Object> env = new HashMap<>();
+        assertThatThrownBy(() -> ruleEngineService.evaluate("a = 10", env))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("보안: let 및 lambda 시도 차단")
+    void testMaliciousLetAndLambda() {
+        Map<String, Object> env = new HashMap<>();
+        assertThatThrownBy(() -> ruleEngineService.evaluate("let a = 10", env))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

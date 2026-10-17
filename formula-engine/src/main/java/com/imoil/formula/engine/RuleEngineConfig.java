@@ -39,6 +39,14 @@ public class RuleEngineConfig {
         safeFeatures.remove(Feature.Use);
         safeFeatures.remove(Feature.Module);
         safeFeatures.remove(Feature.ExceptionHandle);
+        safeFeatures.remove(Feature.Assignment);
+        safeFeatures.remove(Feature.Let);
+        safeFeatures.remove(Feature.Lambda);
+        safeFeatures.remove(Feature.Fn);
+        safeFeatures.remove(Feature.ForLoop);
+        safeFeatures.remove(Feature.WhileLoop);
+        safeFeatures.remove(Feature.Return);
+        safeFeatures.remove(Feature.StringInterpolation);
         instance.setOption(Options.FEATURE_SET, safeFeatures);
 
         // 3. 루프 횟수 제한 및 실행 타임아웃 설정 (DoS 방지)
