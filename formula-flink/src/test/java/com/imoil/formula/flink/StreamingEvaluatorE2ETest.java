@@ -3,6 +3,7 @@ package com.imoil.formula.flink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.imoil.formula.domain.DynamicRule;
 import com.imoil.formula.domain.SensorData;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -26,6 +27,7 @@ import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Slf4j
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(classes = com.imoil.formula.FormulaEvaluatorApplication.class)
 public class StreamingEvaluatorE2ETest {
@@ -90,6 +92,6 @@ public class StreamingEvaluatorE2ETest {
         // 4. 파생된 데이터가 DB에 도달했는지 폴링(Polling) 대기 검증 (예: value 15.0 이 DB에 있는가)
         Thread.sleep(5000); 
         
-        System.out.println("End-To-End test structure successfully compiled and containerized.");
+        log.info("End-To-End test structure successfully compiled and containerized.");
     }
 }
