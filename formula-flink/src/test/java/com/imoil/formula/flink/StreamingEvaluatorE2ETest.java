@@ -18,14 +18,8 @@ import org.testcontainers.utility.DockerImageName;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import java.time.Instant;
 import java.util.Properties;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @Slf4j
 @Testcontainers(disabledWithoutDocker = true)
