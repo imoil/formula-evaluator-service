@@ -1,7 +1,6 @@
 package com.imoil.formula.service;
 
 import com.imoil.formula.domain.SensorData;
-import io.questdb.client.Sender;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -47,9 +46,6 @@ public class QuestDBIngestionServiceTest {
 
     @Autowired
     private QuestDBIngestionService ingestionService;
-
-    @Autowired
-    private Sender sender; // 스프링 컨텍스트 상의 Sender 의존성 검증용
 
     @Test
     void testBulkIngestion() throws Exception {
