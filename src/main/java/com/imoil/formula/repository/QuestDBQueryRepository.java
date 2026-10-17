@@ -8,10 +8,13 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.regex.Pattern;
 
 @Repository
 @RequiredArgsConstructor
 public class QuestDBQueryRepository {
+
+    private static final Pattern SAMPLE_BY_PATTERN = Pattern.compile("^[1-9][0-9]*(?:s|m|h|d|w|ms|M|y)$");
     
     private final JdbcTemplate jdbcTemplate;
 
@@ -19,7 +22,10 @@ public class QuestDBQueryRepository {
      * QuestDB 전용 시계열 집계 다운샘플링 확장 구문(SAMPLE BY)을 활용한 고속 추출 
      */
     public List<SensorData> fetchAggregatedData(String sensorId, String startTime, String endTime, String sampleBy) {
-        
+        if (sampleBy == null || !SAMPLE_BY_PATTERN.matcher(sampleBy).matches()) {
+            throw new IllegalArgumentException("Invalid sampleBy duration: " + sampleBy);
+        }
+
         // QuestDB는 PGWire를 통해 통신하므로 JdbcTemplate 활용 가능
         // FILL(PREV) 를 통해 비어있는 시간대 보간
         // has_inaccurate_data 컬럼이 boolean 타입이므로, 그룹 연산 시 정수형으로 변환 후 max를 사용하여
