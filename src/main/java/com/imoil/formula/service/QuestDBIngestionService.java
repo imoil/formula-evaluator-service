@@ -18,18 +18,13 @@ public class QuestDBIngestionService {
 
     /**
      * 센서 데이터를 QuestDB 보낼 ILP 버퍼에 기록합니다.
-     * 주의: 이 메서드는 동기식으로 즉각적 Flush를 요청하지 않습니다. 
+     * 주의: 이 메서드는 동기식으로 즉각적 Flush를 요청하지 않습니다.
      * 내부 버퍼가 차거나 수동으로 플러시할 때 통신이 시작됩니다.
      */
     public void ingest(SensorData data) {
         // 단일 Sender 빈을 여러 REST 스레드가 사용할 때의 버퍼 오프셋 꼬임(Non Thread-Safe) 방지
         synchronized (sender) {
-            sender.table(TABLE_NAME)
-                    .symbol("sensor_id", data.getSensorId()) // High-cardinality 인덱스
-                    .longColumn("state", data.getState())
-                    .doubleColumn("value", data.getValue())
-                    .boolColumn("has_inaccurate_data", data.isHasInaccurateData())
-                    .at(java.time.Instant.ofEpochMilli(data.getTimestamp()));
+            ingestInternal(data);
         }
     }
 
@@ -42,10 +37,23 @@ public class QuestDBIngestionService {
     public void ingestBatch(List<SensorData> dataList) {
         synchronized (sender) {
             for (SensorData data : dataList) {
-                ingest(data);
+                ingestInternal(data);
             }
             // 버퍼에 쌓여 있는 데이터를 실질적으로 QuestDB 서버로 전송
             sender.flush();
         }
+    }
+
+    /**
+     * 실제 QuestDB ILP 버퍼에 데이터를 기록하는 내부 헬퍼 메서드입니다.
+     * 상위 레벨에서 sender에 대한 적절한 동기화가 이루어진 상태에서 호출되어야 합니다.
+     */
+    private void ingestInternal(SensorData data) {
+        sender.table(TABLE_NAME)
+                .symbol("sensor_id", data.getSensorId()) // High-cardinality 인덱스
+                .longColumn("state", data.getState())
+                .doubleColumn("value", data.getValue())
+                .boolColumn("has_inaccurate_data", data.isHasInaccurateData())
+                .at(data.getTimestamp() * 1_000_000L); // QuestDB client v1.0.1 expects nanoseconds
     }
 }
