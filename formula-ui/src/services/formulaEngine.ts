@@ -1,10 +1,4 @@
-import type {
-  FormulaDefinition,
-  FormulaDependencyInfo,
-  SimulationResultPoint,
-  SimulationMetrics,
-} from '../types/formula'
-import type { SensorDataPoint } from '../types/sensor'
+import type { FormulaDefinition, FormulaDependencyInfo, SimulationResultPoint, SimulationMetrics } from '../types/formula'
 import { generateSensorTimeSeries } from './sensorDataGenerator'
 
 /**
@@ -261,7 +255,7 @@ export function simulateFormula(
     durationSeconds?: number
     sampleStep?: number
     primarySensorId?: string
-    customSensorDataMap?: Map<string, SensorDataPoint[]>
+    customSensorDataMap?: Map<string, any[]>
   } = {}
 ): {
   points: SimulationResultPoint[]
@@ -302,7 +296,7 @@ export function simulateFormula(
   logs.push(`Loaded ${requiredSensors.size} sensor telemetry stream(s): [${Array.from(requiredSensors).join(', ')}]`)
 
   // 3. Load sensor time series: Use backend provided dataset if available, fallback to generator
-  const sensorDataMap = new Map<string, SensorDataPoint[]>()
+  const sensorDataMap = new Map<string, any[]>()
   for (const sId of requiredSensors) {
     if (options.customSensorDataMap && options.customSensorDataMap.has(sId)) {
       sensorDataMap.set(sId, options.customSensorDataMap.get(sId)!)

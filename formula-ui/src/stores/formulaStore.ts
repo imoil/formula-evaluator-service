@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { FormulaDefinition, FormulaDependencyInfo } from '../types/formula'
+import type { FormulaDefinition } from '../types/formula'
 import { analyzeFormulaDependencies } from '../services/formulaEngine'
 
 const LOCAL_STORAGE_KEY = 'formula_evaluator_definitions_v1'
@@ -105,7 +105,7 @@ export const useFormulaStore = defineStore('formula', () => {
     return formulaMap.value.get(id)
   }
 
-  function getDependencies(id: string): FormulaDependencyInfo {
+  function getDependencies(id: string) {
     return analyzeFormulaDependencies(id, formulas.value)
   }
 
