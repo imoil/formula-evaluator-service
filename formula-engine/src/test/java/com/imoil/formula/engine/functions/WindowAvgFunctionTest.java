@@ -24,6 +24,11 @@ class WindowAvgFunctionTest {
     }
 
     @Test
+    void testGetName() {
+        assertThat(function.getName()).isEqualTo("window_avg");
+    }
+
+    @Test
     void testCallWithNullWindowData() {
         env.put("window_data", null);
         AviatorObject result = function.call(env, AviatorLong.valueOf(3));
@@ -59,5 +64,16 @@ class WindowAvgFunctionTest {
         // size 3, data size 3 -> should average all 3: (10+20+30)/3 = 20.0
         AviatorObject result = function.call(env, AviatorLong.valueOf(3));
         assertThat(result.getValue(env)).isEqualTo(20.0);
+    }
+
+    @Test
+    void testCallWithZeroOrNegativeSize() {
+        env.put("window_data", Arrays.asList(10.0, 20.0, 30.0));
+        // when size is 0, sublist should be empty or handled safely by AbstractWindowFunction logic
+        AviatorObject resultZero = function.call(env, AviatorLong.valueOf(0));
+        assertThat(resultZero.getValue(env)).isNotNull();
+
+        AviatorObject resultNegative = function.call(env, AviatorLong.valueOf(-5));
+        assertThat(resultNegative.getValue(env)).isNotNull();
     }
 }
