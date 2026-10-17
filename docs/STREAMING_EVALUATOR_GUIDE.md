@@ -1,6 +1,6 @@
 # 🌊 Flink 스트리밍 평가 및 룰 전파 아키텍처 가이드 (Streaming Evaluator Guide)
 
-본 문서는 **Formula Evaluator Service**의 분산 실시간 스트리밍 처리 모듈인 **`formula-flink`**의 내부 아키텍처, Flink 1.19.3 파이프라인 구성, 동적 룰 브로드캐스트 패턴, RocksDB 상태 관리 및 QuestDB ILP 고속 적재 원리를 다루는 엔지니어링 기술 가이드입니다.
+본 문서는 **Formula Evaluator Service**의 분산 실시간 스트리밍 처리 모듈인 **`formula-flink`**의 내부 아키텍처, Flink 1.19.3 파이프라인 구성, 카프카 컨슈머-데이터소스 간 단일 일련번호 매핑 계층, 동적 룰 브로드캐스트 패턴, RocksDB 상태 관리 및 QuestDB ILP 고속 적재 원리를 다루는 엔지니어링 기술 가이드입니다.
 
 ---
 
@@ -9,6 +9,7 @@
 산업 현장의 IoT 센서 환경에서는 수백만 대의 디바이스로부터 1초 이하 간격으로 원본 텔레메트리 데이터가 유입됩니다. 동시에 운영자는 런타임에 언제든지 새로운 수식(Rule)을 등록하거나 수정할 수 있어야 합니다.
 
 `formula-flink`는 이러한 요구사항을 충족하기 위해 다음과 같은 핵심 설계 목표를 가집니다:
+* **다중 설비 간 센서 식별자 충돌 방지 (Multi-Device Disambiguation)**: `DEVICE-001`과 `DEVICE-002`가 동일하게 0번 센서(`sensorIndex: 0`)를 전송해도 카프카 역직렬화 단계에서 전역 고유 일련번호(`10001`, `10101` 등)로 매핑하여 Flink 상태(State) 오염 원천 차단.
 * **무중단 동적 룰 갱신 (Zero-Downtime Rule Updates)**: 스트리밍 잡을 재시작하지 않고도 Kafka를 통해 새 룰을 전파받아 즉시 반영.
 * **외부 조회 배제 (Zero External Lookup)**: 센서 1건 처리 시 Redis나 RDBMS를 왕복 조회하지 않고 워커 로컬 메모리에서 즉각 수식을 매핑 및 계산.
 * **무제한 힙 팽창 방지 (Bounded State Management)**: Flink RocksDB StateBackend 및 30분 State TTL을 통해 대규모 슬라이딩 윈도우 환경에서도 OOM 방지.
@@ -22,27 +23,33 @@
 flowchart TD
     subgraph KafkaSources["Apache Kafka 3.9 (Source)"]
         SensorTopic["topic: sensor-data<br/>Headers: deviceId, timestamp<br/>Body: [ {sensorIndex, value, status}, ... ]"]
-        RuleTopic["topic: rule-data<br/>(동적 룰 메타데이터 JSON)"]
+        RuleTopic["topic: rule-data<br/>(DynamicRule: targetSensorId, expression, derivedSensorId)"]
     end
 
     subgraph FlinkJob["Apache Flink 1.19.3 분산 스트리밍 잡 (StreamingEvaluatorJob)"]
         direction TB
         
-        subgraph Ingestion["1. 소스 인제스천 & 역직렬화"]
-            SensorSrc["KafkaSource (sensor-data)"]
-            RuleSrc["KafkaSource (rule-data)"]
-            Deserializer["DeviceSensorRecordDeserializer<br/>(헤더 추출 & 센서 배열 FlatMap)"]
-            RuleMap["Map: JSON → DynamicRule"]
+        subgraph Ingestion["1. 소스 인제스천 & 단일 일련번호 매핑 (Mapping Layer)"]
+            SensorSrc["KafkaSource Consumer (sensor-data)"]
+            RuleSrc["KafkaSource Consumer (rule-data)"]
+            
+            subgraph DeserializerBox["DeviceSensorRecordDeserializer"]
+                HeaderParse["헤더 추출 (deviceId, timestamp)"]
+                Resolver["SensorSerialResolver (전역 리졸버)<br/>(deviceId, sensorIndex) ➔ serialNumber (10001+)"]
+                FlatMapArray["바디 JSON 배열 FlatMap (Collector.collect N회 방출)"]
+            end
+            
+            RuleMap["Map: JSON ➔ DynamicRule"]
         end
 
         subgraph BroadcastPipeline["2. 룰 브로드캐스트 & 키 분산"]
-            KeyBy["keyBy(SensorData::getSensorId)<br/>(센서 ID 해시 기반 파티셔닝)"]
-            Broadcast["broadcast(ruleStateDescriptor)<br/>(모든 워커 노드로 복제 전파)"]
+            KeyBy["keyBy(SensorData::getSensorId)<br/>(단일 일련번호 10001, 10101... 해시 분산)"]
+            Broadcast["broadcast(RULE_STATE_DESCRIPTOR)<br/>(모든 워커 노드로 복제 전파)"]
         end
 
         subgraph ProcessFunction["3. RuleBroadcastProcessFunction (핵심 처리기)"]
             Validator["ExpressionValidator<br/>(룰 수식 보안 샌드박스 검증)"]
-            BroadcastState["BroadcastState&lt;String, DynamicRule&gt;<br/>(워커 로컬 룰 딕셔너리)"]
+            BroadcastState["BroadcastState&lt;String, DynamicRule&gt;<br/>('10001' & 'SN_10001' 양방향 등록)"]
             StateMgmt["RocksDB Keyed State<br/>(30분 StateTtlConfig + 윈도우 여부 판별)"]
             AviatorJIT["AviatorScript 5.9.0 JIT 엔진<br/>(바이트코드 캐싱 & 윈도우 함수)"]
             MetricsCollector["Flink MetricGroup<br/>(Hits / Misses / Errors 카운터)"]
@@ -58,14 +65,14 @@ flowchart TD
         QDB[("sensor_data 테이블<br/>(파티션: 일별, nanosecond 단위)")]
     end
 
-    SensorTopic --> SensorSrc --> Deserializer --> KeyBy
+    SensorTopic --> SensorSrc --> HeaderParse --> Resolver --> FlatMapArray --> KeyBy
     RuleTopic --> RuleSrc --> RuleMap --> Broadcast
 
     KeyBy & Broadcast --> ProcessFunction
     RuleMap -.-> Validator --> BroadcastState
     KeyBy -.-> StateMgmt & AviatorJIT
     AviatorJIT -.-> MetricsCollector
-    ProcessFunction -->|원본 & 파생 데이터| SinkLayer
+    ProcessFunction -->|원본(10001) & 파생 수식 센서(10201)| SinkLayer
     SinkLayer --> Storage
 ```
 
@@ -73,28 +80,23 @@ flowchart TD
 
 ## 3. 핵심 컴포넌트 및 동작 원리
 
-### 3.1 `StreamingEvaluatorJob` (파이프라인 진입점)
-* **Configuration 기반 State Backend 설정 (Flink 1.19+ 최신 표준)**:
-  ```java
-  Configuration config = new Configuration();
-  config.set(StateBackendOptions.STATE_BACKEND, "rocksdb");
-  config.set(CheckpointingOptions.INCREMENTAL_CHECKPOINTS, true);
-  StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(config);
-  ```
-  과거 버전의 `env.setStateBackend(...)` 대신 Flink 1.19 공식 권장 사양인 `Configuration`과 `StateBackendOptions`를 적용하여 증분 체크포인트(Incremental Checkpoints)를 기본 활성화합니다.
-* **센서 소스 역직렬화 및 룰 결합**:
-  - `KafkaSource.<SensorData>builder().setDeserializer(new DeviceSensorRecordDeserializer())`: 카프카 헤더의 `deviceId`/`timestamp`와 바디의 센서 JSON 배열을 직접 읽어 단일 레코드 내 다수의 변동 센서를 개별 `SensorData` 스트림으로 평탄화(FlatMap)합니다.
-  - `sensorStream.keyBy(SensorData::getSensorId)`: 수백만 개의 센서를 TaskManager 워커 노드들에 락(Lock) 없이 고르게 분산.
-  - `ruleStream.broadcast(ruleStateDescriptor)`: 룰 변경 이벤트를 모든 분산 TaskManager 워커의 로컬 메모리로 100% 복제 전파.
-  - `.connect(broadcastRuleStream).process(...)`: KeyedStream과 BroadcastStream을 연결하여 동적 평가 수행.
-
----
+### 3.1 `DeviceSensorRecordDeserializer` 및 `SensorSerialResolver` (매핑 계층)
+* **문제 배경**: 서로 다른 IoT 장치(`DEVICE-001`, `DEVICE-002`)가 각각 `sensorIndex: 0`을 전송하면 Flink의 `keyBy(SensorData::getSensorId)`에서 두 장치의 데이터가 동일한 키로 묶여 심각한 상태 충돌이 일어납니다.
+* **해결 원리**:
+  1. `KafkaSource`가 소비한 레코드에서 `deviceId`와 `timestamp` 헤더를 추출합니다.
+  2. 바디 JSON 배열을 순회하며 [`SensorSerialResolver`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-core/src/main/java/com/imoil/formula/domain/SensorSerialResolver.java)를 호출합니다:
+     ```java
+     long serialNumber = resolver.resolveSerialNumber(deviceId, item.getSensorIndex());
+     String sensorId = String.valueOf(serialNumber); // 예: "10001", "10101"
+     ```
+  3. 사전에 Oracle DB에서 동기화된 일련번호가 존재할 경우 해당 번호(`10001+`)를 부여하고, 미등록 센서라도 장치 번호 기반 결정론적 오프셋을 통해 장치 간 중복이 원천 차단됩니다.
+  4. Flink의 `DataStreamSource`로 방출되는 모든 `SensorData`는 이미 단일 일련번호가 부여되어 있으므로, 다운스트림의 `keyBy` 파티셔닝과 룰 매칭이 완벽히 격리됩니다.
 
 ### 3.2 `RuleBroadcastProcessFunction` (동적 룰 평가 프로세서)
 
 ```mermaid
 flowchart TD
-    Start([센서 데이터 유입: processElement]) --> CheckRule{"해당 센서에 매핑된<br/>룰이 존재하는가?"}
+    Start(["센서 데이터 유입: processElement"]) --> CheckRule{"해당 센서에 매핑된<br/>룰이 존재하는가?<br/>(10001 or SN_10001)"}
     
     CheckRule -->|No| IncMiss["ruleMissCounter.inc()"] --> EmitRaw["원본 센서 데이터 출력 (collect)"]
     
@@ -113,9 +115,9 @@ flowchart TD
     
     EvalStep["AviatorScript 5.9.0 JIT evaluate(expression, env)"] --> CheckEval{"평가 성공 여부"}
     
-    CheckEval -->|성공| MakeDerived["파생 SensorData 빌드<br/>(sensorId_derived)"]
+    CheckEval -->|성공| MakeDerived["파생 SensorData 빌드<br/>(derivedSensorId 우선, 미지정시 sensorId_derived)"]
     MakeDerived --> IncHit["ruleHitCounter.inc()"]
-    IncHit --> EmitDerived["파생 데이터 출력 (collect)"]
+    IncHit --> EmitDerived["파생 수식 센서 데이터 출력 (collect)"]
     
     CheckEval -->|실패| LogErr["에러 로깅 & ruleErrorCounter.inc()"]
     
@@ -124,69 +126,30 @@ flowchart TD
     EmitRaw --> End([Sink로 전달])
 ```
 
-#### ① 엄격한 수식 사전 검증 (`processBroadcastElement`)
-운영자가 브로드캐스트 토픽(`rule-data`)으로 룰을 발행하면 각 TaskManager 워커는 이를 상태에 저장하기 전에 [`ExpressionValidator.validate(expr)`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-engine/src/main/java/com/imoil/formula/engine/ExpressionValidator.java)를 호출합니다.
-- 악성 시스템 호출(`System.exit`, `Runtime.getRuntime().exec` 등)이나 임의 클래스 생성이 포함된 경우 상태에 등록하지 않고 에러를 로깅하여 워커 다운을 방지합니다.
-- 수식에 `window_` 또는 `previous_` 함수가 사용되었는지를 사전 판별하여 `rule.setUsesWindow(true/false)`를 캐싱합니다.
+#### ① 양방향 단일 일련번호 룰 매칭 (`processBroadcastElement` & `processElement`)
+사용자나 UI는 룰을 등록할 때 대상 센서를 `"10001"` 또는 `"SN_10001"`로 지정할 수 있습니다.
+- `processBroadcastElement`에서 룰 등록 시 두 형태(`10001`, `SN_10001`)를 `RULE_STATE_DESCRIPTOR`에 양방향으로 등록합니다.
+- `processElement`에서 유입된 센서 ID가 `"10001"`이든 `"SN_10001"`이든 즉각 $O(1)$로 매핑 룰을 조회합니다.
 
-#### ② 윈도우 미사용 룰의 상태 메모리 절약
-* 모든 센서에 대해 30분 동안의 시계열 데이터를 맹목적으로 적재하면 대규모 OOM이 발생합니다.
-* `rule.isUsesWindow() == false`인 단순 사칙연산(`value * 1.8 + 32` 등)인 경우 `windowHistoryState.clear()`와 `ruleStartTimeState.clear()`를 호출하여 RocksDB 디스크 및 힙 자원을 0으로 유지합니다.
-
-#### ③ 불완전 윈도우 데이터 플래깅 (`hasInaccurateData`)
-* 이동 평균(`window_avg(10)`) 등 과거 데이터가 필요한 룰이 런타임에 새로 등록되면, 초기에는 윈도우 버퍼에 10개 분량의 데이터가 채워지지 않아 부정확한 계산값이 도출될 수 있습니다.
-* `RuleBroadcastProcessFunction`은 룰이 최초 적용된 시점(`ruleStartTimeState`)을 추적하여 지정된 보존 주기(`retentionTimeMinutes`)가 지나기 전까지는 생성되는 파생 데이터에 `hasInaccurateData = true` 플래그를 부착합니다.
-
-#### ④ 분산 워커 내 자체 JIT 엔진 캐싱
-* Flink TaskManager는 Spring ApplicationContext 없이 독립적인 JVM 프로세스로 기동됩니다.
-* 따라서 `open(Configuration parameters)` 생명주기 메서드에서 [`RuleEngineConfig`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-engine/src/main/java/com/imoil/formula/engine/RuleEngineConfig.java)를 통해 `AviatorEvaluatorInstance`를 로컬에 직접 초기화하고 커스텀 함수(`WindowAvgFunction`, `WindowMaxFunction`)를 바인딩하여 JVM 레벨 바이트코드 캐시를 보장합니다.
+#### ② 파생 수식 센서 일련번호 방출 (`derivedSensorId`)
+룰 정의에 `derivedSensorId`가 지정되어 있을 경우(예: `"10201"`), 수식 연산 결과로 방출되는 파생 센서의 `sensorId`가 `"10201"`로 지정되어 방출됩니다.
+미지정 시 기존 호환성을 위해 `sensorId + "_derived"`로 방출됩니다.
 
 ---
 
-### 3.3 `QuestDbIlpSink` (Influx Line Protocol 고속 싱크)
+## 4. 운영 및 검증 가이드
 
-QuestDB는 표준 RDBMS 대비 100배 이상의 쓰기 성능을 제공하는 TSDB입니다. `QuestDbIlpSink`는 행 단위 JDBC INSERT를 배제하고 TCP 소켓 기반 ILP 프로토콜로 비동기 배치 적재를 수행합니다.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Worker as Flink TaskManager 워커
-    participant Sink as QuestDbIlpSink
-    participant Socket as OS TCP Socket 버퍼
-    participant QuestDB as QuestDB Server (ILP 포트 9000)
-
-    Worker->>Sink: invoke(SensorData)
-    Sink->>Sink: ILP 라인 포맷팅 (sensor_data,sensor_id=... state=0i,value=25.4,has_inaccurate_data=F timestamp)
-    Sink->>Sink: 인메모리 버퍼에 라인 추가
-    
-    alt 버퍼 행 수 >= auto_flush_rows (10만 건) 또는 주기(1초) 만료
-        Sink->>Socket: 비동기 TCP 일괄 패킷 플러시
-        Socket->>QuestDB: ILP 바이너리/텍스트 스트림 전송
-        QuestDB->>QuestDB: WAL(Write-Ahead Log) 건너뛰고 컬럼별 메모리 매핑 즉각 커밋
-    end
-```
+### 단위/통합 테스트 스위트
+* [`DeviceSensorRecordDeserializerTest.java`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/DeviceSensorRecordDeserializerTest.java):
+  - 카프카 헤더/바디 역직렬화 및 단일 일련번호 매핑 검증.
+  - `DEVICE-001`과 `DEVICE-002`가 동일한 `sensorIndex: 0`을 전송할 때 각각 `10001`, `10101`로 충돌 없이 분리 매핑됨을 검증.
+* [`RuleBroadcastProcessFunctionTest.java`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/RuleBroadcastProcessFunctionTest.java):
+  - 단일 일련번호 `SN_10001`에 대한 룰 브로드캐스트와 실시간 스트림 센서(`10001`)의 매칭 평가 검증.
+  - 파생 센서 `derivedSensorId: 10201`이 정상 계산되어 방출됨을 검증.
 
 ---
 
-## 4. 로컬 실행 및 E2E 테스트 검증
-
-### 4.1 Flink Job 클러스터 제출 (CLI)
-```bash
-# formula-flink 빌드 산출물 생성
-gradle :formula-flink:jar
-
-# Flink Standalone 클러스터에 Job 제출
-flink run -c com.imoil.formula.flink.StreamingEvaluatorJob formula-flink/build/libs/formula-flink-0.0.1-SNAPSHOT.jar \
-  --kafka-bootstrap-servers "localhost:9092" \
-  --kafka-topic-sensor "sensor-data" \
-  --kafka-topic-rule "rule-data" \
-  --retention-time-minutes 30 \
-  --questdb-url "http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;"
-```
-
----
-
-## 5. 상세 연동 문서 링크
-* [IoT 센서 에뮬레이션 및 엔드투엔드 시계열 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)
+## 📚 관련 문서
 * [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](../ARCHITECTURE_GUIDE.md)
+* [IoT 센서 에뮬레이션 및 엔드투엔드 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)
 * [Formula UI 아키텍처 및 사용자 가이드 (FRONTEND_UI_GUIDE.md)](FRONTEND_UI_GUIDE.md)
