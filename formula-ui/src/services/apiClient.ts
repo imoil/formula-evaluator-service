@@ -58,6 +58,20 @@ export async function fetchBackendSensors(): Promise<SensorMetadata[]> {
 }
 
 /**
+ * 백엔드 헬스체크 엔드포인트를 호출하여 백엔드 서비스의 연결 상태를 확인합니다.
+ */
+export async function checkBackendHealth(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/api/v1/health`, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/**
  * 백엔드 /api/v1/sensors/{sensorId}/timeseries 엔드포인트에서 1시간(3,600건) 시계열 데이터를 가져옵니다.
  */
 export async function fetchBackendSensorTimeSeries(sensorId: string): Promise<SensorDataPoint[]> {
@@ -65,7 +79,7 @@ export async function fetchBackendSensorTimeSeries(sensorId: string): Promise<Se
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
   if (!response.ok) {
-    throw new Error(`Failed to fetch time series from backend (${response.status})`)
+    throw new Error(`Failed to fetch sensor time series from backend (${response.status})`)
   }
   return await response.json()
 }
