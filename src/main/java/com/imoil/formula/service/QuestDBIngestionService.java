@@ -24,12 +24,7 @@ public class QuestDBIngestionService {
     public void ingest(SensorData data) {
         // 단일 Sender 빈을 여러 REST 스레드가 사용할 때의 버퍼 오프셋 꼬임(Non Thread-Safe) 방지
         synchronized (sender) {
-            sender.table(TABLE_NAME)
-                    .symbol("sensor_id", data.getSensorId()) // High-cardinality 인덱스
-                    .longColumn("state", data.getState())
-                    .doubleColumn("value", data.getValue())
-                    .boolColumn("has_inaccurate_data", data.isHasInaccurateData())
-                    .at(java.time.Instant.ofEpochMilli(data.getTimestamp()));
+            doIngest(data);
         }
     }
 
@@ -42,10 +37,19 @@ public class QuestDBIngestionService {
     public void ingestBatch(List<SensorData> dataList) {
         synchronized (sender) {
             for (SensorData data : dataList) {
-                ingest(data);
+                doIngest(data);
             }
             // 버퍼에 쌓여 있는 데이터를 실질적으로 QuestDB 서버로 전송
             sender.flush();
         }
+    }
+
+    private void doIngest(SensorData data) {
+        sender.table(TABLE_NAME)
+                .symbol("sensor_id", data.getSensorId()) // High-cardinality 인덱스
+                .longColumn("state", data.getState())
+                .doubleColumn("value", data.getValue())
+                .boolColumn("has_inaccurate_data", data.isHasInaccurateData())
+                .at(data.getTimestamp() * 1_000_000L); // at() expects nanoseconds for ILP
     }
 }

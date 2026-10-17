@@ -29,7 +29,7 @@ public class QuestDbIlpSink extends RichSinkFunction<SensorData> {
                 .longColumn("state", value.getState())
                 .doubleColumn("value", value.getValue())
                 .boolColumn("has_inaccurate_data", value.isHasInaccurateData())
-                .at(java.time.Instant.ofEpochMilli(value.getTimestamp()));
+                .at(value.getTimestamp() * 1_000_000L); // at() expects nanoseconds for ILP
     }
 
     @Override
