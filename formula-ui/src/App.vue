@@ -22,17 +22,15 @@
       <div class="d-none d-md-flex align-center gap-2 mr-4">
         <v-chip
           size="small"
-          :color="sensorStore.isBackendConnected ? 'success' : 'warning'"
+          :color="sensorRegistryStore.isBackendConnected ? 'success' : 'warning'"
           variant="tonal"
         >
-          <v-icon start size="14">
-            {{ sensorStore.isBackendConnected ? 'mdi-server-network' : 'mdi-cloud-off-outline' }}
-          </v-icon>
-          {{ sensorStore.isBackendConnected ? 'formula-api: Online' : 'formula-api: Offline' }}
+          <v-icon start size="14">mdi-database</v-icon>
+          {{ sensorRegistryStore.isBackendConnected ? 'Oracle 19c: Online' : 'Oracle 19c: Local Standalone' }}
         </v-chip>
         <v-chip size="small" color="primary" variant="tonal">
-          <v-icon start size="14">mdi-access-point</v-icon>
-          {{ sensorStore.sensors.length || 100 }} Sensors (1h / 1s interval)
+          <v-icon start size="14">mdi-numeric</v-icon>
+          {{ sensorRegistryStore.totalCount }} Serialized Sensors (Global Seq)
         </v-chip>
         <v-chip size="small" color="secondary" variant="tonal">
           <v-icon start size="14">mdi-function-variant</v-icon>
@@ -74,6 +72,10 @@
             density="comfortable"
             grow
           >
+            <v-tab value="registry">
+              <v-icon start>mdi-format-list-numbered</v-icon>
+              Unified Sensor Registry ({{ sensorRegistryStore.totalCount }})
+            </v-tab>
             <v-tab value="formulas">
               <v-icon start>mdi-format-list-bulleted-square</v-icon>
               Formula Management ({{ formulaStore.formulas.length }})
@@ -84,10 +86,15 @@
             </v-tab>
             <v-tab value="sensors">
               <v-icon start>mdi-access-point-network</v-icon>
-              100 Normal-Distribution Sensors (Source: formula-api)
+              Integrated Sensor Explorer (Source: Oracle 19c & API)
             </v-tab>
           </v-tabs>
         </v-card>
+
+        <!-- Tab 0: Unified Sensor Registry (Oracle 19c) -->
+        <div v-show="activeTab === 'registry'">
+          <SensorManagement @simulate-sensor="onSimulateRegistrySensor" />
+        </div>
 
         <!-- Tab 1: Formula List & Management -->
         <div v-show="activeTab === 'formulas'">
@@ -107,7 +114,7 @@
           />
         </div>
 
-        <!-- Tab 3: 100 Sample Sensors Explorer -->
+        <!-- Tab 3: Sensor Explorer -->
         <div v-show="activeTab === 'sensors'">
           <SensorDataExplorer
             :is-active="activeTab === 'sensors'"
@@ -130,18 +137,22 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
 import type { FormulaDefinition } from './types/formula'
+import type { SensorRegistryItem } from './types/sensorRegistry'
 import { useFormulaStore } from './stores/formulaStore'
 import { useSensorStore } from './stores/sensorStore'
+import { useSensorRegistryStore } from './stores/sensorRegistryStore'
 import FormulaList from './components/FormulaList.vue'
 import FormulaEditor from './components/FormulaEditor.vue'
 import FormulaSimulation from './components/FormulaSimulation.vue'
 import SensorDataExplorer from './components/SensorDataExplorer.vue'
+import SensorManagement from './components/SensorManagement.vue'
 
 const theme = useTheme()
 const formulaStore = useFormulaStore()
 const sensorStore = useSensorStore()
+const sensorRegistryStore = useSensorRegistryStore()
 
-const activeTab = ref<'formulas' | 'simulation' | 'sensors'>('formulas')
+const activeTab = ref<'registry' | 'formulas' | 'simulation' | 'sensors'>('registry')
 const editorDialog = ref(false)
 const formulaToEdit = ref<FormulaDefinition | null>(null)
 const simulationTargetFormulaId = ref<string>('POWER_EFFICIENCY_INDEX')
@@ -180,6 +191,30 @@ function onSelectSensorForSim(sensorId: string) {
   activeTab.value = 'simulation'
 }
 
+function onSimulateRegistrySensor(sensor: SensorRegistryItem) {
+  if (sensor.sensorType === 'PHYSICAL') {
+    simulationTargetSensorId.value = String(sensor.serialNumber)
+    activeTab.value = 'simulation'
+  } else if (sensor.sensorType === 'FORMULA') {
+    const existing = formulaStore.getFormulaById(sensor.sensorCode)
+    if (!existing) {
+      const cleanId = sensor.sensorCode.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+      const created = formulaStore.addFormula({
+        id: cleanId,
+        name: sensor.sensorName,
+        expression: sensor.formulaExpression || 'value * 1.0',
+        category: (sensor.category as any) || 'Efficiency',
+        targetSensor: '10001',
+        description: sensor.description || 'Oracle Registered Formula Sensor',
+      })
+      simulationTargetFormulaId.value = created.id
+    } else {
+      simulationTargetFormulaId.value = existing.id
+    }
+    activeTab.value = 'simulation'
+  }
+}
+
 // Synchronize responsive layout on tab change
 watch(activeTab, async () => {
   await nextTick()
@@ -187,6 +222,7 @@ watch(activeTab, async () => {
 })
 
 onMounted(() => {
+  sensorRegistryStore.fetchSensors()
   sensorStore.loadSensors()
 })
 </script>
@@ -206,9 +242,5 @@ body {
 
 .gap-2 {
   gap: 8px;
-}
-
-.gap-3 {
-  gap: 12px;
 }
 </style>

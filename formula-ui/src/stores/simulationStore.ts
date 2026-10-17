@@ -49,7 +49,7 @@ export const useSimulationStore = defineStore('simulation', () => {
         })
 
         // Transform backend response into SimulationResult
-        const mappedPoints = rawPoints.map((pt, idx) => {
+        const mappedPoints = rawPoints.map((pt: any, idx: number) => {
           const timeStr = typeof pt.timestamp === 'number'
             ? new Date(pt.timestamp).toISOString().substring(11, 19)
             : pt.timestamp.includes('T') ? pt.timestamp.split('T')[1].replace('Z', '') : pt.timestamp
@@ -67,10 +67,10 @@ export const useSimulationStore = defineStore('simulation', () => {
           }
         })
 
-        const vals = mappedPoints.map((p) => p.computedValue)
+        const vals = mappedPoints.map((p: any) => p.computedValue as number)
         const min = vals.length > 0 ? Math.min(...vals) : 0
         const max = vals.length > 0 ? Math.max(...vals) : 0
-        const sum = vals.reduce((a, b) => a + b, 0)
+        const sum = vals.reduce((a: number, b: number) => a + b, 0)
         const avg = vals.length > 0 ? sum / vals.length : 0
 
         currentResult.value = {

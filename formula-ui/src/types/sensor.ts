@@ -1,13 +1,17 @@
 export interface SensorMetadata {
   id: string
   name: string
-  category: 'Temperature' | 'Pressure' | 'Vibration' | 'Electrical' | 'Flow' | 'Mechanical' | 'Environmental'
+  category: 'Temperature' | 'Pressure' | 'Vibration' | 'Electrical' | 'Flow' | 'Mechanical' | 'Environmental' | 'Efficiency' | string
   unit: string
   mean: number
   stdDev: number
   minClamp?: number
   maxClamp?: number
   description: string
+  serialNumber?: number
+  deviceId?: string | null
+  deviceSensorIndex?: number | null
+  sensorType?: string
 }
 
 export interface SensorDataPoint {
