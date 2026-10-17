@@ -5,7 +5,6 @@ import {
   getEvaluationOrder,
   simulateFormula,
 } from '../services/formulaEngine'
-import type { FormulaDefinition } from '../types/formula'
 import {
   getAllSensors,
   generateSensorTimeSeries,
@@ -36,7 +35,7 @@ describe('100 Sample Sensors & Normal Distribution Telemetry', () => {
 })
 
 describe('Formula Dependency Engine & Sub-Formula Composition', () => {
-  const formulas: FormulaDefinition[] = [
+  const formulas = [
     {
       id: 'BASE_TEMP_F',
       name: 'Temp F',
@@ -78,7 +77,7 @@ describe('Formula Dependency Engine & Sub-Formula Composition', () => {
   })
 
   it('should detect circular references between formulas', () => {
-    const cyclicFormulas: FormulaDefinition[] = [
+    const cyclicFormulas = [
       {
         id: 'A',
         name: 'A',
