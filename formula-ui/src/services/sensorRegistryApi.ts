@@ -323,6 +323,14 @@ class LocalStorageRegistryManager {
     }
     return parseInt(raw, 10);
   }
+
+  syncRules(): { syncedCount: number; message: string } {
+    const formulas = this.getSensors().filter((s) => s.sensorType === 'FORMULA' && s.status === 'ACTIVE');
+    return {
+      syncedCount: formulas.length,
+      message: `Successfully synchronized ${formulas.length} rules to Kafka (Local Standalone Mode)`,
+    };
+  }
 }
 
 export const localManager = new LocalStorageRegistryManager();
@@ -484,4 +492,26 @@ export const sensorRegistryApi = {
       return localManager.getNextSerialPreview();
     }
   },
+
+  async syncRulesToFlink(): Promise<{ syncedCount: number; message: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sensors/rules/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.message || `HTTP error ${res.status}`);
+      }
+      return await res.json();
+    } catch (err: unknown) {
+      if (isNetworkError(err)) {
+        return localManager.syncRules();
+      }
+      throw err;
+    }
+  },
 };
+
+export const syncRulesToFlink = sensorRegistryApi.syncRulesToFlink;

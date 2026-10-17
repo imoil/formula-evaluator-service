@@ -13,6 +13,7 @@ import { useSensorStore } from './sensorStore';
 export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
   const sensors = ref<SensorRegistryItem[]>([]);
   const isLoading = ref<boolean>(false);
+  const syncingRules = ref<boolean>(false);
   const isBackendConnected = ref<boolean>(false);
   const errorMessage = ref<string | null>(null);
 
@@ -200,9 +201,27 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     }
   }
 
+  /**
+   * DB에 등록된 활성 수식 센서 룰을 Kafka rule-data 토픽을 거쳐 Flink in-memory BroadcastState로 일괄 동기화
+   */
+  async function syncRulesToFlink(): Promise<{ syncedCount: number; message: string }> {
+    syncingRules.value = true;
+    errorMessage.value = null;
+    try {
+      const res = await sensorRegistryApi.syncRulesToFlink();
+      return res;
+    } catch (err: unknown) {
+      errorMessage.value = err instanceof Error ? err.message : 'Flink 룰 동기화 실패';
+      throw err;
+    } finally {
+      syncingRules.value = false;
+    }
+  }
+
   return {
     sensors,
     isLoading,
+    syncingRules,
     isBackendConnected,
     errorMessage,
     searchQuery,
@@ -220,5 +239,6 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     updateSensor,
     deleteSensor,
     syncDeviceSensors,
+    syncRulesToFlink,
   };
 });

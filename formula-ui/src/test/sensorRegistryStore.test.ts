@@ -127,4 +127,14 @@ describe('Sensor Registry Pinia Store', () => {
     expect(store.filteredSensors.length).toBe(2);
     expect(store.filteredSensors.some((s) => s.serialNumber === 10002)).toBe(true);
   });
+
+  it('synchronizes formula rules to Flink and updates status', async () => {
+    const store = useSensorRegistryStore();
+    await store.fetchSensors();
+
+    const res = await store.syncRulesToFlink();
+    expect(res.syncedCount).toBeGreaterThanOrEqual(1);
+    expect(res.message).toContain('synchronized');
+    expect(store.syncingRules).toBe(false);
+  });
 });

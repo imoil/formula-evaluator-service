@@ -165,6 +165,23 @@
               Sync Device
             </v-btn>
 
+            <v-tooltip location="top">
+              <template #activator="{ props }">
+                <v-btn
+                  color="teal"
+                  variant="flat"
+                  prepend-icon="mdi-sync"
+                  class="ml-2"
+                  :loading="store.syncingRules"
+                  v-bind="props"
+                  @click="handleSyncRules"
+                >
+                  Sync Rules to Flink
+                </v-btn>
+              </template>
+              <span>Synchronize active formula rules to Flink in-memory BroadcastState</span>
+            </v-tooltip>
+
             <v-btn
               icon="mdi-refresh"
               variant="text"
@@ -740,6 +757,15 @@ async function submitForm() {
     notify(err instanceof Error ? err.message : 'Operation failed', 'error');
   } finally {
     isSubmitting.value = false;
+  }
+}
+
+async function handleSyncRules() {
+  try {
+    const res = await store.syncRulesToFlink();
+    notify(res.message || `성공적으로 ${res.syncedCount}개의 룰이 Flink로 동기화되었습니다`, 'success');
+  } catch (err: unknown) {
+    notify(err instanceof Error ? err.message : 'Flink 룰 동기화 실패', 'error');
   }
 }
 
