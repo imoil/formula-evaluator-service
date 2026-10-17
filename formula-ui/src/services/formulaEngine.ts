@@ -212,6 +212,22 @@ export function getRequiredSensors(
   return Array.from(requiredSensors)
 }
 
+// Pre-compiled regular expressions for expression transpilation in createEvalFunction
+const RE_WINDOW_AVG = /\bwindow_avg\s*\(\s*(\d+)\s*\)/g
+const RE_WINDOW_MAX = /\bwindow_max\s*\(\s*(\d+)\s*\)/g
+const RE_WINDOW_MIN = /\bwindow_min\s*\(\s*(\d+)\s*\)/g
+const RE_ABS = /\babs\s*\(/g
+const RE_SQRT = /\bsqrt\s*\(/g
+const RE_ROUND = /\bround\s*\(/g
+const RE_FLOOR = /\bfloor\s*\(/g
+const RE_CEIL = /\bceil\s*\(/g
+const RE_MIN = /\bmin\s*\(/g
+const RE_MAX = /\bmax\s*\(/g
+const RE_POW = /\bpow\s*\(/g
+const RE_LOG = /\blog\s*\(/g
+const RE_SIN = /\bsin\s*\(/g
+const RE_COS = /\bcos\s*\(/g
+
 /**
  * Safe expression evaluation context
  */
@@ -220,20 +236,20 @@ function createEvalFunction(expressionStr: string): (ctx: Record<string, any>) =
   // 1. Replace power operator ^ with **
   // 2. Map window functions: window_avg(n) -> ctx.__window_avg(n)
   let transformed = expressionStr
-    .replace(/\bwindow_avg\s*\(\s*(\d+)\s*\)/g, 'ctx.__window_avg($1)')
-    .replace(/\bwindow_max\s*\(\s*(\d+)\s*\)/g, 'ctx.__window_max($1)')
-    .replace(/\bwindow_min\s*\(\s*(\d+)\s*\)/g, 'ctx.__window_min($1)')
-    .replace(/\babs\s*\(/g, 'Math.abs(')
-    .replace(/\bsqrt\s*\(/g, 'Math.sqrt(')
-    .replace(/\bround\s*\(/g, 'Math.round(')
-    .replace(/\bfloor\s*\(/g, 'Math.floor(')
-    .replace(/\bceil\s*\(/g, 'Math.ceil(')
-    .replace(/\bmin\s*\(/g, 'Math.min(')
-    .replace(/\bmax\s*\(/g, 'Math.max(')
-    .replace(/\bpow\s*\(/g, 'Math.pow(')
-    .replace(/\blog\s*\(/g, 'Math.log(')
-    .replace(/\bsin\s*\(/g, 'Math.sin(')
-    .replace(/\bcos\s*\(/g, 'Math.cos(')
+    .replace(RE_WINDOW_AVG, 'ctx.__window_avg($1)')
+    .replace(RE_WINDOW_MAX, 'ctx.__window_max($1)')
+    .replace(RE_WINDOW_MIN, 'ctx.__window_min($1)')
+    .replace(RE_ABS, 'Math.abs(')
+    .replace(RE_SQRT, 'Math.sqrt(')
+    .replace(RE_ROUND, 'Math.round(')
+    .replace(RE_FLOOR, 'Math.floor(')
+    .replace(RE_CEIL, 'Math.ceil(')
+    .replace(RE_MIN, 'Math.min(')
+    .replace(RE_MAX, 'Math.max(')
+    .replace(RE_POW, 'Math.pow(')
+    .replace(RE_LOG, 'Math.log(')
+    .replace(RE_SIN, 'Math.sin(')
+    .replace(RE_COS, 'Math.cos(')
 
   // Use Function constructor with 'ctx' argument
   const fnBody = `
