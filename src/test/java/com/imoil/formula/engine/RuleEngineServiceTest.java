@@ -50,4 +50,16 @@ class RuleEngineServiceTest {
         double maxResult = ruleEngineService.evaluate("window_max(4) * 2", env);
         assertThat(maxResult).isEqualTo(20.0);
     }
+
+    @Test
+    void testWindowFunctionsWithEmptyEnv() {
+        Map<String, Object> env = new HashMap<>();
+        // window_data is missing, which is handled as null
+
+        double avgResult = ruleEngineService.evaluate("window_avg(3)", env);
+        assertThat(avgResult).isEqualTo(0.0);
+
+        double maxResult = ruleEngineService.evaluate("window_max(3)", env);
+        assertThat(maxResult).isEqualTo(0.0);
+    }
 }
