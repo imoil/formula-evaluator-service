@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.regex.Pattern;
 
 @Repository
 @RequiredArgsConstructor
@@ -15,10 +16,16 @@ public class QuestDBQueryRepository {
     
     private final JdbcTemplate jdbcTemplate;
 
+    private static final Pattern SAMPLE_BY_PATTERN = Pattern.compile("^[1-9][0-9]*[mh]$");
+
     /**
      * QuestDB 전용 시계열 집계 다운샘플링 확장 구문(SAMPLE BY)을 활용한 고속 추출 
      */
     public List<SensorData> fetchAggregatedData(String sensorId, String startTime, String endTime, String sampleBy) {
+        // sampleBy 파라미터 검증 (SQL 인젝션 방지)
+        if (sampleBy == null || !SAMPLE_BY_PATTERN.matcher(sampleBy).matches()) {
+            throw new IllegalArgumentException("Invalid sampleBy format. Expected pattern: " + SAMPLE_BY_PATTERN.pattern());
+        }
         
         // QuestDB는 PGWire를 통해 통신하므로 JdbcTemplate 활용 가능
         // FILL(PREV) 를 통해 비어있는 시간대 보간
