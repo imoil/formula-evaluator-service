@@ -5,6 +5,8 @@ import io.questdb.client.Sender;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
+import java.time.temporal.ChronoUnit;
+
 /**
  * 비동기 배치 처리를 지원하는 QuestDB ILP 공식 클라이언트 기반의 커스텀 Sink.
  */
@@ -29,7 +31,7 @@ public class QuestDbIlpSink extends RichSinkFunction<SensorData> {
                 .longColumn("state", value.getState())
                 .doubleColumn("value", value.getValue())
                 .boolColumn("has_inaccurate_data", value.isHasInaccurateData())
-                .at(java.time.Instant.ofEpochMilli(value.getTimestamp()));
+                .at(value.getTimestamp() * 1_000_000L, ChronoUnit.NANOS);
     }
 
     @Override
