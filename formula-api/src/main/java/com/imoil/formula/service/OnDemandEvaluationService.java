@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -46,7 +47,7 @@ public class OnDemandEvaluationService {
         
         List<SensorData> resultData = new ArrayList<>();
         // OutOfMemoryError 방지를 위해 윈도우 계산 이력은 최대 100개까지만 보관하도록 캡(Cap) 적용
-        List<Double> windowHistory = new ArrayList<>();
+        List<Double> windowHistory = new LinkedList<>();
         final int MAX_WINDOW_SIZE = 100;
         
         for (SensorData data : rawData) {
