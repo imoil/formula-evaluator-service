@@ -22,4 +22,7 @@ public class DynamicRule {
     // AviatorScript 엔진에 의해 수행될 수식 구문 
     // e.g. "value * 1.5 + window_avg(5)"
     private String expression;
+
+    // 히스토리 데이터(윈도우 함수 등)가 필요한지 여부를 나타내는 필드 (성능 최적화용)
+    private boolean usesWindow;
 }
