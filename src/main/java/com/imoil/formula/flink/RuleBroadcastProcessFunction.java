@@ -6,6 +6,7 @@ import com.imoil.formula.engine.RuleEngineConfig;
 import com.imoil.formula.engine.RuleEngineService;
 import com.imoil.formula.engine.functions.WindowAvgFunction;
 import com.imoil.formula.engine.functions.WindowMaxFunction;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.api.common.state.BroadcastState;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
@@ -27,6 +28,7 @@ import java.util.Map;
  * 센서 이벤트 스트림과 동적 룰 브로드캐스트 스트림을 결합하여 
  * AviatorScript 엔진으로 런타임 평가를 수행합니다.
  */
+@Slf4j
 public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<String, SensorData, DynamicRule, SensorData> {
     
     private final MapStateDescriptor<String, DynamicRule> ruleStateDescriptor = 
@@ -43,6 +45,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
     // 옵저버빌리티(Observability) 및 성능 튜닝을 위한 상태 모니터링 메트릭스
     private transient Counter ruleHitCounter;
     private transient Counter ruleMissCounter;
+    private transient Counter ruleErrorCounter;
 
     public RuleBroadcastProcessFunction() {
         this(30); // 기본 보존 시간 30분
@@ -79,6 +82,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         var metricGroup = getRuntimeContext().getMetricGroup();
         ruleHitCounter = metricGroup.counter("ruleEvaluationHits");
         ruleMissCounter = metricGroup.counter("ruleEvaluationMisses");
+        ruleErrorCounter = metricGroup.counter("ruleEvaluationErrors");
     }
 
     @Override
@@ -138,7 +142,9 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
                 out.collect(resultData);
                 ruleHitCounter.inc(); // 평가 성공 지표 측정
             } catch (Exception e) {
-                // 파싱 오류이거나 연산 오류일 경우 무시 (필요시 dead-letter topic 처리)
+                // 파싱 오류이거나 연산 오류일 경우 로깅 및 메트릭 측정 (필요시 dead-letter topic 처리)
+                log.error("Failed to evaluate rule for sensor: {}", value.getSensorId(), e);
+                ruleErrorCounter.inc();
             }
         } else {
             ruleMissCounter.inc(); // 룰이 할당되지 않은 센서 빈도 지표
