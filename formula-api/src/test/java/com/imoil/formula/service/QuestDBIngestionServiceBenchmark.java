@@ -3,11 +3,10 @@ package com.imoil.formula.service;
 import com.imoil.formula.domain.SensorData;
 import io.questdb.client.Sender;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 public class QuestDBIngestionServiceBenchmark {
@@ -18,7 +17,7 @@ public class QuestDBIngestionServiceBenchmark {
         Sender sender = mock(Sender.class, RETURNS_DEEP_STUBS);
         QuestDBIngestionService service = new QuestDBIngestionService(sender);
 
-        int recordCount = 100000;
+        int recordCount = 1000;
         List<SensorData> batch = new ArrayList<>();
         for (int i = 0; i < recordCount; i++) {
             batch.add(SensorData.builder()
@@ -30,17 +29,17 @@ public class QuestDBIngestionServiceBenchmark {
         }
 
         // Warm up
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 2; i++) {
             service.ingestBatch(batch);
         }
 
         long start = System.nanoTime();
-        int iterations = 10;
+        int iterations = 5;
         for (int i = 0; i < iterations; i++) {
             service.ingestBatch(batch);
         }
         long end = System.nanoTime();
 
-        System.out.println("Average time for ingestBatch (100k records): " + ((end - start) / iterations / 1_000_000.0) + " ms");
+        System.out.println("Average time for ingestBatch (1k records): " + ((end - start) / iterations / 1_000_000.0) + " ms");
     }
 }

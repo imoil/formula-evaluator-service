@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Slf4j
@@ -54,6 +55,6 @@ public class QuestDBIngestionService {
                 .longColumn("state", data.getState())
                 .doubleColumn("value", data.getValue())
                 .boolColumn("has_inaccurate_data", data.isHasInaccurateData())
-                .at(data.getTimestamp() * 1_000_000L); // QuestDB client v1.0.1 expects nanoseconds
+                .at(data.getTimestamp() * 1_000_000L, ChronoUnit.NANOS); // QuestDB client v1.0.1 expects nanoseconds
     }
 }
