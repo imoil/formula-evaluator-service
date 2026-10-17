@@ -85,22 +85,24 @@ class OnDemandEvaluationServiceTest {
         given(timeSeriesDataSourceAdapter.getDataSourceType()).willReturn(DataSourceType.RDBMS);
         given(timeSeriesDataSourceAdapter.fetchTimeSeriesData(any(TimeSeriesQueryCriteria.class)))
                 .willReturn(List.of(d1, d2));
-        given(ruleEngineService.evaluate(any(), any())).willReturn(10.0);
+
+        List<List<Double>> capturedWindows = new java.util.ArrayList<>();
+        given(ruleEngineService.evaluate(eq("window_avg(2)"), any())).willAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> env = invocation.getArgument(1);
+            @SuppressWarnings("unchecked")
+            List<Double> win = (List<Double>) env.get("window_data");
+            capturedWindows.add(new java.util.ArrayList<>(win));
+            return 10.0;
+        });
 
         evaluationService.evaluateOverTimeRange("s1", "window_avg(2)", "start", "end", "1m");
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, Object>> envCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(ruleEngineService, times(2)).evaluate(eq("window_avg(2)"), envCaptor.capture());
+        verify(ruleEngineService, times(2)).evaluate(eq("window_avg(2)"), any());
 
-        List<Map<String, Object>> allEnvs = envCaptor.getAllValues();
         // 1번째 호출 시 window_data = [5.0]
-        @SuppressWarnings("unchecked")
-        List<Double> window1 = (List<Double>) allEnvs.get(0).get("window_data");
-        assertThat(window1).containsExactly(5.0);
+        assertThat(capturedWindows.get(0)).containsExactly(5.0);
         // 2번째 호출 시 window_data = [5.0, 15.0]
-        @SuppressWarnings("unchecked")
-        List<Double> window2 = (List<Double>) allEnvs.get(1).get("window_data");
-        assertThat(window2).containsExactly(5.0, 15.0);
+        assertThat(capturedWindows.get(1)).containsExactly(5.0, 15.0);
     }
 }

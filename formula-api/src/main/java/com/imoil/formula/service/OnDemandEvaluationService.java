@@ -50,17 +50,19 @@ public class OnDemandEvaluationService {
         List<Double> windowHistory = new LinkedList<>();
         final int MAX_WINDOW_SIZE = 100;
         
+        // GC 오버헤드 최소화를 위해 루프 외부에서 HashMap을 생성하고 재사용
+        Map<String, Object> env = new HashMap<>(4);
+        // 히스토리 배열을 넘김으로써 `window_avg(n)` 커스텀 윈도우 함수가 런타임에 처리되도록 함
+        env.put("window_data", windowHistory);
+
         for (SensorData data : rawData) {
             windowHistory.add(data.getValue());
             if (windowHistory.size() > MAX_WINDOW_SIZE) {
                 windowHistory.remove(0); // 가장 오래된 데이터 제거 (Sliding Window 역할)
             }
             
-            Map<String, Object> env = new HashMap<>();
             env.put("value", data.getValue());
             env.put("state", data.getState());
-            // 히스토리 배열을 넘김으로써 `window_avg(n)` 커스텀 윈도우 함수가 런타임에 처리되도록 함
-            env.put("window_data", windowHistory);
             
             try {
                 // Rule 엔진 평가

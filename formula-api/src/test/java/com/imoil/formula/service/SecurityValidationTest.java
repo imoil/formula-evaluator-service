@@ -69,7 +69,7 @@ public class SecurityValidationTest {
 
     @Test
     void testPartitionNameValidation_Valid() {
-        try (MockedStatic<LocalDateTime> mockedLocalDateTime = mockStatic(LocalDateTime.class)) {
+        try (MockedStatic<LocalDateTime> mockedLocalDateTime = mockStatic(LocalDateTime.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
             // Set a fixed date: 2023-10-31
             LocalDateTime fixedDate = LocalDateTime.of(2023, 10, 31, 3, 0);
             mockedLocalDateTime.when(LocalDateTime::now).thenReturn(fixedDate);

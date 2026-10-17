@@ -18,7 +18,7 @@ subprojects {
 
     java {
         toolchain {
-            languageVersion = JavaLanguageVersion.of(libs.versions.java.get())
+            languageVersion = JavaLanguageVersion.of(project.findProperty('javaVersion') ?: libs.versions.java.get())
         }
     }
 
