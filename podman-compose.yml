@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   questdb:
-    image: questdb/questdb:9.3.4
+    image: questdb/questdb:10.0.1
     container_name: questdb
     ports:
       - "9000:9000" # REST/UI

@@ -6,12 +6,14 @@ import com.imoil.formula.domain.SensorData;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.state.MapStateDescriptor;
+import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.configuration.CheckpointingOptions;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.StateBackendOptions;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
-import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.streaming.api.datastream.BroadcastStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 
 /**
@@ -21,11 +23,15 @@ public class StreamingEvaluatorJob {
 
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+        // Flink 1.19+ 표준: Configuration 기반 RocksDB 상태 백엔드 설정 (setStateBackend 대체)
+        Configuration config = new Configuration();
+        config.set(StateBackendOptions.STATE_BACKEND, "rocksdb");
+        config.set(CheckpointingOptions.INCREMENTAL_CHECKPOINTS, true);
+
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(config);
         env.getConfig().setGlobalJobParameters(parameters);
-        
-        // 메모리 폭발 방지 및 파일 병합을 위한 RocksDB State Backend 통합 활성화
-        env.setStateBackend(new EmbeddedRocksDBStateBackend(true)); // Incremental Checkpoint 활성화
+
         env.enableCheckpointing(AppConstants.CHECKPOINT_INTERVAL_MS); // 주기적 체크포인트 (장애 복구 보장용)
         env.getCheckpointConfig().setTolerableCheckpointFailureNumber(AppConstants.TOLERABLE_CHECKPOINT_FAILURE_NUMBER);
 

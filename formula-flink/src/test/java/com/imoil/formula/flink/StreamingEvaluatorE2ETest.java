@@ -15,10 +15,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @Slf4j
@@ -27,12 +27,12 @@ import org.testcontainers.utility.DockerImageName;
 public class StreamingEvaluatorE2ETest {
 
     @Container
-    static final GenericContainer<?> questDB = new GenericContainer<>(DockerImageName.parse("questdb/questdb:9.3.4"))
+    static final GenericContainer<?> questDB = new GenericContainer<>(DockerImageName.parse("questdb/questdb:10.0.1"))
             .withExposedPorts(9000, 9009, 8812)
             .waitingFor(Wait.forHttp("/").forPort(9000));
 
     @Container
-    static final KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"));
+    static final ConfluentKafkaContainer kafka = new ConfluentKafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.3"));
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {

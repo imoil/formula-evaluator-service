@@ -3,10 +3,10 @@
 [![Java](https://img.shields.io/badge/Java-25-orange.svg)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.16-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![Gradle](https://img.shields.io/badge/Gradle-9.8.0-02303A.svg)](https://gradle.org/)
-[![Apache Flink](https://img.shields.io/badge/Apache%20Flink-1.19.0-E6526F.svg)](https://flink.apache.org/)
-[![QuestDB](https://img.shields.io/badge/QuestDB-9.3.4-pink.svg)](https://questdb.io/)
+[![Apache Flink](https://img.shields.io/badge/Apache%20Flink-1.19.3-E6526F.svg)](https://flink.apache.org/)
+[![QuestDB](https://img.shields.io/badge/QuestDB-10.0.1-pink.svg)](https://questdb.io/)
 [![AviatorScript](https://img.shields.io/badge/AviatorScript-5.9.0-blue.svg)](https://github.com/killme2008/aviatorscript)
-[![Vue.js](https://img.shields.io/badge/Vue.js-3.5-42b883.svg)](https://vuejs.org/)
+[![Vue.js](https://img.shields.io/badge/Vue.js-3.5-42b883.svg)](https://vuejs.org//)
 [![Vuetify](https://img.shields.io/badge/Vuetify-4.2-1867C0.svg)](https://vuetifyjs.com/)
 
 본 프로젝트는 1초 이하 간격으로 유입되는 수백만 대의 IoT 센서 시계열 데이터를 지연 없이 수집하고, 사용자가 정의한 동적 수식(Formula)과 윈도우 집계 로직을 즉각 컴파일하여 파생 데이터를 계산하는 **고성능 듀얼 패스(Dual-Path) 분산 처리 시스템**입니다.
@@ -34,7 +34,7 @@ flowchart TD
     SensorInput -->|대량 데이터 스트림| SensorTopic
     RuleInput -->|룰 메타데이터| RuleTopic
 
-    subgraph StreamingPath["Path 1: 실시간 스트리밍 경로 (Apache Flink)"]
+    subgraph StreamingPath["Path 1: 실시간 스트리밍 경로 (Apache Flink 1.19.3)"]
         BroadcastState["Rule Broadcast State (작업자 분산 전파)"]
         KeyedStream["KeyedStream by sensorId (수평 분산)"]
         RocksDBState["RocksDB State Backend (30분 슬라이딩 윈도우 + TTL)"]
@@ -49,7 +49,7 @@ flowchart TD
     end
 
     subgraph StorageLayer["시계열 데이터 저장소"]
-        QuestDB[("QuestDB 9.3.4 (ILP / PGWire)")]
+        QuestDB[("QuestDB 10.0.1 (ILP / PGWire)")]
     end
 
     ILPSink -->|ILP TCP/HTTP| QuestDB
@@ -108,7 +108,7 @@ flowchart BT
 | **`formula-core`** | Java Library | Lombok | 외부 프레임워크 의존성이 없는 순수 도메인 모델 (`SensorData`, `DynamicRule`) 정의 |
 | **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일 및 바이트코드 캐싱, 커스텀 윈도우 함수 (`window_avg`, `window_max`) 바인딩 |
 | **`formula-api`** | Spring Boot Application | Spring Boot 3.5, Spring Data JPA, PostgreSQL Wire | 온디맨드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 센서 카탈로그 API (`/api/v1/sensors`, Single Source of Truth), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
-| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19, RocksDB, Kafka Connector | 분산 스트리밍 평가 파이프라인, Broadcast State 패턴 기반 룰 전파, QuestDB ILP 비동기 적재 |
+| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector | 분산 스트리밍 평가 파이프라인, Broadcast State 패턴 기반 룰 전파, QuestDB ILP 비동기 적재 |
 | **`formula-ui`** | Frontend SPA | Vite, Vue 3, Vuetify 4, ECharts, Pinia, pnpm | 온디맨드 수식 작성/저장, 합성 수식(수식 간 호출 DAG), `formula-api` Mock DataSource 연동 100개 센서 1초 간격 시뮬레이션 및 시계열 시각화 |
 
 ---
@@ -120,8 +120,8 @@ flowchart BT
 | **Language** | Java (OpenJDK) | **25** (LTS) | 최신 가상 스레드 및 메모리 모델 지원 |
 | **Build Tool** | Gradle | **9.8.0** | Version Catalog (`libs.versions.toml`) 기반 멀티 모듈 관리 |
 | **Framework** | Spring Boot | **3.5.16** | REST API, Spring Data JPA, 스케줄링 관리 |
-| **Stream Engine** | Apache Flink | **1.19.0** | 분산 스트리밍 처리, RocksDB 상태 백엔드 |
-| **TSDB** | QuestDB | **9.3.4** | ILP 초고속 적재 (Zero-GC), PGWire SQL 및 `SAMPLE BY` 다운샘플링 |
+| **Stream Engine** | Apache Flink | **1.19.3** | 분산 스트리밍 처리, RocksDB 상태 백엔드 |
+| **TSDB** | QuestDB | **10.0.1** | ILP/QWP 초고속 적재 (Zero-GC), PGWire SQL 및 `SAMPLE BY` 다운샘플링 |
 | **Rule Engine** | AviatorScript | **5.9.0** | `io.github.aviatorscript:aviator`, 바이트코드 컴파일 캐싱 |
 | **Message Broker**| Apache Kafka | **3.9.2** | 센서 데이터 및 룰 배포 큐 |
 | **Frontend** | Vue 3 + Vuetify 4 | **3.5** / **4.2** | TypeScript, Composition API, ECharts 6.1, Pinia, Vite 8, pnpm |

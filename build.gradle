@@ -18,8 +18,12 @@ subprojects {
 
     java {
         toolchain {
-            languageVersion = JavaLanguageVersion.of(project.findProperty('javaVersion') ?: libs.versions.java.get())
+            languageVersion = JavaLanguageVersion.of(project.findProperty('javaVersion') ?: rootProject.libs.versions.java.get())
         }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs << "-Xlint:deprecation"
     }
 
     dependencyManagement {
@@ -35,13 +39,13 @@ subprojects {
     }
 
     dependencies {
-        compileOnly libs.lombok
-        annotationProcessor libs.lombok
+        compileOnly rootProject.libs.lombok
+        annotationProcessor rootProject.libs.lombok
 
-        testCompileOnly libs.lombok
-        testAnnotationProcessor libs.lombok
+        testCompileOnly rootProject.libs.lombok
+        testAnnotationProcessor rootProject.libs.lombok
 
-        testImplementation libs.spring.boot.starter.test
+        testImplementation rootProject.libs.spring.boot.starter.test
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 
