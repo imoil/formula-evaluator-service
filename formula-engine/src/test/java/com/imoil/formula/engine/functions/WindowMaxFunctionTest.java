@@ -24,6 +24,11 @@ class WindowMaxFunctionTest {
     }
 
     @Test
+    void testGetName() {
+        assertThat(function.getName()).isEqualTo("window_max");
+    }
+
+    @Test
     void testCallWithNullWindowData() {
         env.put("window_data", null);
         AviatorObject result = function.call(env, AviatorLong.valueOf(3));
@@ -59,5 +64,24 @@ class WindowMaxFunctionTest {
         // size 3, data size 3 -> should find max of all 3: 40.0
         AviatorObject result = function.call(env, AviatorLong.valueOf(3));
         assertThat(result.getValue(env)).isEqualTo(40.0);
+    }
+
+    @Test
+    void testCallWithNegativeNumbers() {
+        env.put("window_data", Arrays.asList(-50.0, -20.0, -30.0, -10.0));
+        // size 2, data size 4 -> should find max of last 2 [-30.0, -10.0]: -10.0
+        AviatorObject result = function.call(env, AviatorLong.valueOf(2));
+        assertThat(result.getValue(env)).isEqualTo(-10.0);
+    }
+
+    @Test
+    void testCallWithZeroOrNegativeSize() {
+        env.put("window_data", Arrays.asList(10.0, 20.0, 30.0));
+        // size 0 or negative -> subList is empty -> compute returns -Double.MAX_VALUE
+        AviatorObject result0 = function.call(env, AviatorLong.valueOf(0));
+        assertThat(result0.getValue(env)).isEqualTo(-Double.MAX_VALUE);
+
+        AviatorObject resultNeg = function.call(env, AviatorLong.valueOf(-2));
+        assertThat(resultNeg.getValue(env)).isEqualTo(-Double.MAX_VALUE);
     }
 }
