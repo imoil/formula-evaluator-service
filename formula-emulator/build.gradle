@@ -1,0 +1,28 @@
+plugins {
+    id 'application'
+}
+
+application {
+    mainClass = 'com.imoil.formula.emulator.SensorEmulatorApplication'
+}
+
+dependencies {
+    implementation project(':formula-core')
+
+    // Kafka Client
+    implementation 'org.apache.kafka:kafka-clients:3.9.0'
+
+    // JSON Processing
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    // Logging
+    implementation 'org.slf4j:slf4j-api'
+    implementation 'ch.qos.logback:logback-classic'
+
+    // Testing
+    testImplementation project(':formula-flink')
+    testImplementation rootProject.libs.flink.java
+    testImplementation rootProject.libs.flink.connector.kafka
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core'
+}

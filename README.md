@@ -22,19 +22,22 @@
 ```mermaid
 flowchart TD
     subgraph DataSources["IoT 센서 및 관리자 입력"]
+        SensorEmulator["formula-emulator (1,000개 센서 모의, 1~10초 주기 변동)"]
         SensorInput["산업용 센서 (수백만 개/초)"]
         RuleInput["관리자 동적 룰 정의 (수십만 개)"]
     end
 
     subgraph KafkaCluster["Apache Kafka 3.9 (Message Broker)"]
-        SensorTopic["topic: sensor-data"]
+        SensorTopic["topic: sensor-data<br/>Headers: deviceId, timestamp<br/>Body: [ {sensorIndex, value, status}, ... ]"]
         RuleTopic["topic: rule-data"]
     end
 
+    SensorEmulator -->|1초 주기 무지연 배치 전송| SensorTopic
     SensorInput -->|대량 데이터 스트림| SensorTopic
     RuleInput -->|룰 메타데이터| RuleTopic
 
     subgraph StreamingPath["Path 1: 실시간 스트리밍 경로 (Apache Flink 1.19.3)"]
+        DeviceDeserializer["DeviceSensorRecordDeserializer (헤더/바디 분해 & FlatMap)"]
         BroadcastState["Rule Broadcast State (작업자 분산 전파)"]
         KeyedStream["KeyedStream by sensorId (수평 분산)"]
         RocksDBState["RocksDB State Backend (30분 슬라이딩 윈도우 + TTL)"]
@@ -42,10 +45,11 @@ flowchart TD
         AviatorJIT1["AviatorScript 5.9.0 JIT 컴파일러 (바이트코드 캐시)"]
         ILPSink["QuestDB ILP Sink (비동기 배치 플러시, 10만 건)"]
 
+        SensorTopic --> DeviceDeserializer
+        DeviceDeserializer --> KeyedStream
         RuleTopic -->|Broadcast| BroadcastState
         BroadcastState --> SecCheck1
         SecCheck1 --> AviatorJIT1
-        SensorTopic --> KeyedStream
         KeyedStream & BroadcastState --> AviatorJIT1
         AviatorJIT1 <--> RocksDBState
         AviatorJIT1 -->|파생 데이터| ILPSink
@@ -88,7 +92,7 @@ flowchart TD
 
 ## 📦 멀티 모듈 구조 (Multi-Module Architecture)
 
-프로젝트는 명확한 관심사 분리(SoC)와 재사용성을 고려하여 4개의 백엔드 모듈과 1개의 프론트엔드 모듈로 구성되어 있습니다.
+프로젝트는 명확한 관심사 분리(SoC)와 재사용성을 고려하여 5개의 백엔드 모듈과 1개의 프론트엔드 모듈로 구성되어 있습니다.
 
 ```mermaid
 flowchart BT
@@ -96,6 +100,7 @@ flowchart BT
     formulaEngine["formula-engine<br/>(AviatorScript 엔진 & 보안 샌드박스)"]
     formulaApi["formula-api<br/>(Spring Boot REST 서비스 & 어댑터)"]
     formulaFlink["formula-flink<br/>(Flink 스트리밍 잡 & ILP 싱크)"]
+    formulaEmulator["formula-emulator<br/>(IoT 1,000개 센서 시뮬레이션 Tool)"]
     formulaUi["formula-ui<br/>(Vue 3 + Vuetify 4 프론트엔드 UI)"]
 
     formulaEngine --> formulaCore
@@ -103,6 +108,7 @@ flowchart BT
     formulaApi --> formulaEngine
     formulaFlink --> formulaCore
     formulaFlink --> formulaEngine
+    formulaEmulator --> formulaCore
     formulaUi -.->|REST API /api| formulaApi
 ```
 
@@ -110,10 +116,11 @@ flowchart BT
 
 | 모듈명 | 유형 | 주요 기술 | 책임 및 기능 |
 | :--- | :--- | :--- | :--- |
-| **`formula-core`** | Java Library | Java 25, Lombok | 외부 프레임워크 의존성이 없는 순수 도메인 모델 (`SensorData`, `DynamicRule`) 정의 |
+| **`formula-core`** | Java Library | Java 25, Lombok | 순수 도메인 모델 (`SensorData`, `DynamicRule`, `SensorItem`, `DeviceMessageHeader`, `DeviceSensorMessage`) 정의 |
 | **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일, 런타임 보안 샌드박스(`ExpressionValidator`, 클래스 차단), 커스텀 윈도우 함수 (`window_avg`, `window_max`) |
 | **`formula-api`** | Spring Boot App | Spring Boot 3.5.16, Spring Data JPA, QuestDB Client 1.3.9 | 온디맨드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 100개 센서 카탈로그 API (`/api/v1/sensors`, Single Source of Truth), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
-| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector 3.3.0 | 분산 스트리밍 평가 파이프라인, Broadcast State 패턴 기반 룰 전파, RocksDB State TTL 메모리 관리, QuestDB ILP 비동기 적재 |
+| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector 3.3.0 | 분산 스트리밍 평가 파이프라인, 에뮬레이터 카프카 레코드 역직렬화(`DeviceSensorRecordDeserializer`), Broadcast State 패턴 기반 룰 전파, RocksDB State TTL 메모리 관리, QuestDB ILP 비동기 적재 |
+| **`formula-emulator`** | Standalone Java App | Java 25, Kafka Clients 3.9, Jackson | 1,000개 수준의 IoT 센서 에뮬레이션 Tool. 1초~10초 주기 센서 변동, 매 1초 무지연 스케줄러(`scheduleAtFixedRate`) 기반 변동 센서 취합 및 카프카 비동기 배치 전송 |
 | **`formula-ui`** | Frontend SPA | Vite 8, Vue 3.5, Vuetify 4.2, ECharts 6.1, Pinia, pnpm | 온디맨드 수식 작성/저장, 합성 수식 DAG 위상 정렬 분석, `CircularBuffer` 기반 초고속 시뮬레이션(86,400초 연산 ~500ms), 백엔드 연동 100개 센서 시계열 시각화 |
 
 ---
@@ -134,68 +141,50 @@ flowchart BT
 
 ---
 
-## 🔒 보안 및 고성능 엔지니어링 특징
+## 📡 IoT 센서 에뮬레이터 규격 및 동작 방식 (`formula-emulator`)
 
-### 1. 3중 수식 보안 샌드박스 (Expression Sandbox)
-- **`ExpressionValidator`**: 500자 길이 제한, 허용 연산자 화이트리스트 검증, 단독 대입문(`=`) 원천 차단, 시스템/리플렉션/위험 함수 블랙리스트 차단(`Class`, `System`, `Runtime`, `Process`, `exec`, `eval`, `load`, `import`, `new` 등).
-- **AviatorEvaluator 클래스 격리**: `ALLOWED_CLASS_SET = emptySet()`으로 임의 자바 클래스 참조 원천 봉쇄, `NewInstance`/`StaticMethods`/`Module` 등 위험 기능 비활성화.
-- **DoS 방어**: `MAX_LOOP_COUNT = 1000`, `EVAL_TIMEOUT_MS = 5000L` 설정으로 무한 루프 공격 방어.
+### 1. 센서 에뮬레이션 특성
+- **센서 규모**: 기본 1,000개 (`sensorIndex`: 0 ~ 999).
+- **변동 주기**: 센서별로 1초 ~ 10초 사이의 독립적인 주기로 변동 발생.
+- **센서 상태**: `normal` (정상), `down` (장애/중단, 기본 1% 확률 전이).
+- **1초 무지연 전송 보장**:
+  - `ScheduledExecutorService.scheduleAtFixedRate`를 통해 주기 지연 누적(Drift) 원천 차단.
+  - 매 1초마다 지난 1초 동안 변동이 일어난 센서들을 집계.
+  - 카프카 `send()`를 **비동기 논블로킹(Non-blocking Async)**으로 호출하고 `linger.ms = 0`으로 설정하여 1초 스케줄러 지연을 발생시키지 않음.
 
-### 2. SQL / DDL 인젝션 방어
-- `SAMPLE BY` 화이트리스트 정규식 검증 (`^[1-9][0-9]*(?:s|m|h|d|w|ms|M|y)$`).
-- QuestDB `DROP PARTITION` 대상 명칭 날짜 정규식 검증 (`^\d{4}-\d{2}-\d{2}$`).
-
-### 3. 고성능 메모리 및 루프 최적화
-- **백엔드 온디맨드 루프 최적화**: `LinkedList` 기반 슬라이딩 윈도우 $O(1)$ 이력 관리, 루프 외부 `env` 맵 사전 할당 및 재사용을 통한 Zero-Allocation GC 최소화.
-- **프론트엔드 `CircularBuffer`**: 브라우저 `Array.shift()` 오버헤드를 제거한 `Float64Array` 링 버퍼 구현.
-- **바인딩 사전 추출 (Pre-extraction)**: 시뮬레이션 루프 진입 전 센서/수식 배열 및 버퍼 포인터를 사전 캐싱하여 루프 내 `Map.get()` 룩업 완전 제거 (86,400초 데이터 5회 평균 ~520ms).
-
----
-
-## 🔌 플러그형 시계열 데이터 소스 아키텍처 (Pluggable DataSource)
-
-`formula-api`는 특정 데이터베이스에 종속되지 않고 환경에 맞춰 저장소를 교체할 수 있는 어댑터 계층을 제공합니다.
-
-```mermaid
-classDiagram
-    class TimeSeriesDataSourceAdapter {
-        <<interface>>
-        +DataSourceType getDataSourceType()
-        +List~SensorData~ fetchTimeSeriesData(TimeSeriesQueryCriteria criteria)
+### 2. 카프카 메시지 포맷 (Kafka Record)
+- **Record Headers**:
+  - `deviceId`: 장치명 (예: `DEVICE-001`)
+  - `timestamp`: 전송 시각 (Epoch Milliseconds, 예: `1729152000000`)
+- **Record Value (Body)**: 변동된 센서들의 JSON 배열
+  ```json
+  [
+    {
+      "sensorIndex": 0,
+      "value": 24.512,
+      "status": "normal"
+    },
+    {
+      "sensorIndex": 15,
+      "value": 110.23,
+      "status": "normal"
+    },
+    {
+      "sensorIndex": 88,
+      "value": 0.0,
+      "status": "down"
     }
+  ]
+  ```
 
-    class QuestDBDataSourceAdapter {
-        -QuestDBQueryRepository repository
-        +fetchTimeSeriesData(criteria)
-    }
-
-    class MockNormalDistributionDataSourceAdapter {
-        -MockSensorCatalogService catalogService
-        +fetchTimeSeriesData(criteria)
-    }
-
-    class RdbmsDataSourceAdapter {
-        -DataSource dataSource
-        +fetchTimeSeriesData(criteria)
-    }
-
-    class StreamingBufferDataSourceAdapter {
-        -ConcurrentHashMap inMemoryRingBuffer
-        +fetchTimeSeriesData(criteria)
-    }
-
-    class OnDemandEvaluationService {
-        -TimeSeriesDataSourceAdapter adapter
-        -RuleEngineService ruleEngine
-        +evaluateOverTimeRange(...)
-    }
-
-    TimeSeriesDataSourceAdapter <|.. QuestDBDataSourceAdapter
-    TimeSeriesDataSourceAdapter <|.. MockNormalDistributionDataSourceAdapter
-    TimeSeriesDataSourceAdapter <|.. RdbmsDataSourceAdapter
-    TimeSeriesDataSourceAdapter <|.. StreamingBufferDataSourceAdapter
-    OnDemandEvaluationService --> TimeSeriesDataSourceAdapter
-```
+### 3. Flink 연동 처리 (`formula-flink`)
+- `DeviceSensorRecordDeserializer`가 카프카 레코드의 헤더(`deviceId`, `timestamp`)와 바디(센서 JSON 배열)를 수신합니다.
+- 각 센서 아이템을 파싱하여 개별 `SensorData`로 평탄화(`Collector.collect()`)합니다.
+  - `sensorId`: `sensor_{sensorIndex}` (예: `sensor_015`)
+  - `timestamp`: 카프카 헤더의 전송 시각
+  - `value`: 센서 변동 측정값
+  - `state`: `normal`이면 0, `down`이면 1
+- 평탄화된 `DataStream<SensorData>`는 Flink의 RocksDB 상태 기반 수식 엔진과 QuestDB ILP 싱크로 즉시 연동됩니다.
 
 ---
 
@@ -220,11 +209,9 @@ pnpm dev
 # 브라우저에서 http://localhost:3000 접속 시 formula-api: Online 배지 활성화
 ```
 
-상세한 UI 사용법, DAG 수식 작성법 및 설정은 [FRONTEND_UI_GUIDE.md](docs/FRONTEND_UI_GUIDE.md)를 참고하세요.
-
 ---
 
-### 옵션 B: 전체 인프라 연동 엔터프라이즈 모드 (QuestDB + Kafka 포함)
+### 옵션 B: 전체 인프라 연동 엔터프라이즈 모드 (QuestDB + Kafka + Flink + Emulator)
 
 #### 1. 인프라 실행 (Podman / Docker)
 ```bash
@@ -244,7 +231,16 @@ gradle clean build
 gradle :formula-api:bootRun
 ```
 
-#### 3. Flink Job 실행 파라미터
+#### 3. IoT 센서 에뮬레이터 실행 (`formula-emulator`)
+```bash
+# 기본 설정(1,000개 센서, 1초 주기 발송, device-001)으로 에뮬레이터 기동
+gradle :formula-emulator:run
+
+# CLI 옵션 오버라이딩 실행 예시:
+gradle :formula-emulator:run --args="--device-id=DEVICE-FACTORY-1 --sensor-count=1000 --min-interval=1 --max-interval=10 --emit-interval-ms=1000 --kafka-servers=localhost:9092 --kafka-topic=sensor-data"
+```
+
+#### 4. Flink Job 실행 파라미터
 ```bash
 flink run -c com.imoil.formula.flink.StreamingEvaluatorJob formula-flink/build/libs/formula-flink-0.0.1-SNAPSHOT.jar \
   --kafka-bootstrap-servers "localhost:9092" \
@@ -254,7 +250,7 @@ flink run -c com.imoil.formula.flink.StreamingEvaluatorJob formula-flink/build/l
   --questdb-url "http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;"
 ```
 
-#### 4. 프론트엔드 UI 실행
+#### 5. 프론트엔드 UI 실행
 ```bash
 cd formula-ui
 pnpm dev
@@ -321,5 +317,6 @@ Content-Type: application/json
 
 ## 📚 관련 상세 문서
 * [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](ARCHITECTURE_GUIDE.md)
+* [IoT 센서 에뮬레이션 및 엔드투엔드 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](docs/SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)
 * [Formula UI 아키텍처 및 사용자 가이드 (Frontend UI Guide)](docs/FRONTEND_UI_GUIDE.md)
 * [스트리밍 평가 룰 전파 아키텍처 가이드 (Streaming Evaluator Guide)](docs/STREAMING_EVALUATOR_GUIDE.md)

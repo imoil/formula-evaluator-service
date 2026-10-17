@@ -24,7 +24,7 @@ public class StreamingEvaluatorJob {
     public static void main(String[] args) throws Exception {
         ParameterTool parameters = ParameterTool.fromArgs(args);
 
-        // Flink 1.19+ 표준: Configuration 기반 RocksDB 상태 백엔드 설정 (setStateBackend 대체)
+        // Flink 1.19+ 표준: Configuration 기반 RocksDB 상태 백엔드 설정
         Configuration config = new Configuration();
         config.set(StateBackendOptions.STATE_BACKEND, "rocksdb");
         config.set(CheckpointingOptions.INCREMENTAL_CHECKPOINTS, true);
@@ -37,13 +37,13 @@ public class StreamingEvaluatorJob {
 
         String kafkaBootstrapServers = parameters.get(AppConstants.ARG_KAFKA_BOOTSTRAP_SERVERS, AppConstants.KAFKA_BOOTSTRAP_SERVERS_DEFAULT);
         
-        // Sensor Data Kafka Source
-        KafkaSource<String> sensorKafkaSource = KafkaSource.<String>builder()
+        // Sensor Data Kafka Source: 카프카 헤더(장치명, 전송시각)와 바디(센서 JSON 배열)를 지원하는 디시리얼라이저 사용
+        KafkaSource<SensorData> sensorKafkaSource = KafkaSource.<SensorData>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
                 .setTopics(parameters.get(AppConstants.ARG_KAFKA_TOPIC_SENSOR, AppConstants.KAFKA_TOPIC_SENSOR_DATA_DEFAULT))
                 .setGroupId(parameters.get(AppConstants.ARG_KAFKA_GROUP_SENSOR, AppConstants.KAFKA_GROUP_ID_SENSOR_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
-                .setValueOnlyDeserializer(new SimpleStringSchema())
+                .setDeserializer(new DeviceSensorRecordDeserializer())
                 .build();
 
         // Rule 메타데이터 Kafka Source
@@ -55,12 +55,10 @@ public class StreamingEvaluatorJob {
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
-        DataStream<String> sensorStrings = env.fromSource(sensorKafkaSource, WatermarkStrategy.noWatermarks(), AppConstants.SOURCE_NAME_SENSOR);
+        DataStream<SensorData> sensorStream = env.fromSource(sensorKafkaSource, WatermarkStrategy.noWatermarks(), AppConstants.SOURCE_NAME_SENSOR);
         DataStream<String> ruleStrings = env.fromSource(ruleKafkaSource, WatermarkStrategy.noWatermarks(), AppConstants.SOURCE_NAME_RULE);
 
         ObjectMapper mapper = new ObjectMapper();
-
-        DataStream<SensorData> sensorStream = sensorStrings.map(json -> mapper.readValue(json, SensorData.class));
         DataStream<DynamicRule> ruleStream = ruleStrings.map(json -> mapper.readValue(json, DynamicRule.class));
 
         // 브로드캐스트 상태 디스크립터
@@ -77,7 +75,7 @@ public class StreamingEvaluatorJob {
                 .connect(broadcastRuleStream)
                 .process(new RuleBroadcastProcessFunction(retentionTimeMinutes));
 
-        // ILP 프로토콜을 사용한 QuestDB 최종 적재 Sink 연동결합 (초당 수백만 건 수용을 위한 버퍼/비동기 조건 명시)
+        // ILP 프로토콜을 사용한 QuestDB 최종 적재 Sink 연동결합
         String questdbUrl = parameters.get(AppConstants.ARG_QUESTDB_URL, AppConstants.QUESTDB_URL_DEFAULT);
         evaluatedStream.addSink(new QuestDbIlpSink(questdbUrl));
 

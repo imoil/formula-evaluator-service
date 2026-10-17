@@ -21,7 +21,7 @@
 ```mermaid
 flowchart TD
     subgraph KafkaSources["Apache Kafka 3.9 (Source)"]
-        SensorTopic["topic: sensor-data<br/>(수백만 센서 데이터 JSON)"]
+        SensorTopic["topic: sensor-data<br/>Headers: deviceId, timestamp<br/>Body: [ {sensorIndex, value, status}, ... ]"]
         RuleTopic["topic: rule-data<br/>(동적 룰 메타데이터 JSON)"]
     end
 
@@ -31,7 +31,7 @@ flowchart TD
         subgraph Ingestion["1. 소스 인제스천 & 역직렬화"]
             SensorSrc["KafkaSource (sensor-data)"]
             RuleSrc["KafkaSource (rule-data)"]
-            SensorMap["Map: JSON → SensorData"]
+            Deserializer["DeviceSensorRecordDeserializer<br/>(헤더 추출 & 센서 배열 FlatMap)"]
             RuleMap["Map: JSON → DynamicRule"]
         end
 
@@ -58,7 +58,7 @@ flowchart TD
         QDB[("sensor_data 테이블<br/>(파티션: 일별, nanosecond 단위)")]
     end
 
-    SensorTopic --> SensorSrc --> SensorMap --> KeyBy
+    SensorTopic --> SensorSrc --> Deserializer --> KeyBy
     RuleTopic --> RuleSrc --> RuleMap --> Broadcast
 
     KeyBy & Broadcast --> ProcessFunction
@@ -82,7 +82,8 @@ flowchart TD
   StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(config);
   ```
   과거 버전의 `env.setStateBackend(...)` 대신 Flink 1.19 공식 권장 사양인 `Configuration`과 `StateBackendOptions`를 적용하여 증분 체크포인트(Incremental Checkpoints)를 기본 활성화합니다.
-* **센서 및 룰 소스 결합**:
+* **센서 소스 역직렬화 및 룰 결합**:
+  - `KafkaSource.<SensorData>builder().setDeserializer(new DeviceSensorRecordDeserializer())`: 카프카 헤더의 `deviceId`/`timestamp`와 바디의 센서 JSON 배열을 직접 읽어 단일 레코드 내 다수의 변동 센서를 개별 `SensorData` 스트림으로 평탄화(FlatMap)합니다.
   - `sensorStream.keyBy(SensorData::getSensorId)`: 수백만 개의 센서를 TaskManager 워커 노드들에 락(Lock) 없이 고르게 분산.
   - `ruleStream.broadcast(ruleStateDescriptor)`: 룰 변경 이벤트를 모든 분산 TaskManager 워커의 로컬 메모리로 100% 복제 전파.
   - `.connect(broadcastRuleStream).process(...)`: KeyedStream과 BroadcastStream을 연결하여 동적 평가 수행.
@@ -158,32 +159,24 @@ sequenceDiagram
     Sink->>Sink: ILP 라인 포맷팅 (sensor_data,sensor_id=... state=0i,value=25.4,has_inaccurate_data=F timestamp)
     Sink->>Sink: 인메모리 버퍼에 라인 추가
     
-    alt 버퍼 레코드 수 >= 100,000건 또는 1초 경과
-        Sink->>Socket: 비동기 일괄 소켓 전송 (Socket Flush)
-        Socket-->>QuestDB: TCP 스트리밍 수신 (Zero-GC Commit)
+    alt 버퍼 행 수 >= auto_flush_rows (10만 건) 또는 주기(1초) 만료
+        Sink->>Socket: 비동기 TCP 일괄 패킷 플러시
+        Socket->>QuestDB: ILP 바이너리/텍스트 스트림 전송
+        QuestDB->>QuestDB: WAL(Write-Ahead Log) 건너뛰고 컬럼별 메모리 매핑 즉각 커밋
     end
 ```
 
 ---
 
-## 4. 운영 및 모니터링 가이드 (Observability & Metrics)
+## 4. 로컬 실행 및 E2E 테스트 검증
 
-`RuleBroadcastProcessFunction`은 Flink 내장 `MetricGroup`을 통해 실시간 운영 현황을 프로메테우스(Prometheus) 및 Flink 대시보드에 노출합니다.
-
-| 메트릭 명칭 | 메트릭 유형 | 설명 | 장애 대응 가이드 |
-| :--- | :--- | :--- | :--- |
-| `ruleEvaluationHits` | Counter | 센서에 룰이 정상 매핑되어 파생 데이터 계산에 성공한 횟수 | 트래픽 대비 증가율 정상 여부 모니터링 |
-| `ruleEvaluationMisses` | Counter | 룰이 등록되지 않아 원본 데이터만 통과한 횟수 | 미등록 센서 유입량 추적 |
-| `ruleEvaluationErrors` | Counter | 수식 실행 중 0으로 나누기, 파싱 실패 등으로 오류가 발생한 횟수 | 급증 시 룰 토픽의 수식 문법 및 잘못된 필드 점검 |
-
----
-
-## 5. 실행 및 파라미터 규격
-
-### 5.1 Flink CLI 잡 제출 명령
+### 4.1 Flink Job 클러스터 제출 (CLI)
 ```bash
-flink run -c com.imoil.formula.flink.StreamingEvaluatorJob \
-  formula-flink/build/libs/formula-flink-0.0.1-SNAPSHOT.jar \
+# formula-flink 빌드 산출물 생성
+gradle :formula-flink:jar
+
+# Flink Standalone 클러스터에 Job 제출
+flink run -c com.imoil.formula.flink.StreamingEvaluatorJob formula-flink/build/libs/formula-flink-0.0.1-SNAPSHOT.jar \
   --kafka-bootstrap-servers "localhost:9092" \
   --kafka-topic-sensor "sensor-data" \
   --kafka-topic-rule "rule-data" \
@@ -191,13 +184,9 @@ flink run -c com.imoil.formula.flink.StreamingEvaluatorJob \
   --questdb-url "http::addr=localhost:9000;auto_flush_interval=1000;auto_flush_rows=100000;"
 ```
 
-### 5.2 파라미터 상세
-| 파라미터 키 | 필수 | 기본값 | 설명 |
-| :--- | :---: | :--- | :--- |
-| `--kafka-bootstrap-servers` | 선택 | `localhost:9092` | Kafka 클러스터 접속 주소 |
-| `--kafka-topic-sensor` | 선택 | `sensor-data` | 원본 IoT 센서 데이터 수신 토픽 |
-| `--kafka-topic-rule` | 선택 | `rule-data` | 관리자 동적 룰 정의 브로드캐스트 토픽 |
-| `--kafka-group-sensor` | 선택 | `formula-sensor-evaluator-group` | 센서 데이터 컨슈머 그룹 ID |
-| `--kafka-group-rule` | 선택 | `formula-rule-broadcast-group` | 룰 데이터 컨슈머 그룹 ID |
-| `--retention-time-minutes` | 선택 | `30` | RocksDB State TTL 보존 시간 (분 단위) |
-| `--questdb-url` | 선택 | `http::addr=localhost:9000;...` | QuestDB ILP 싱크 접속 및 버퍼링 설정 문자열 |
+---
+
+## 5. 상세 연동 문서 링크
+* [IoT 센서 에뮬레이션 및 엔드투엔드 시계열 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)
+* [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](../ARCHITECTURE_GUIDE.md)
+* [Formula UI 아키텍처 및 사용자 가이드 (FRONTEND_UI_GUIDE.md)](FRONTEND_UI_GUIDE.md)
