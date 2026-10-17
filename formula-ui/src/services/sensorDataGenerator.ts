@@ -4,7 +4,7 @@
  * time-series data is the backend formula-api service (MockSensorCatalogService).
  * This module serves solely as an offline fallback and testing utility when the backend is unreachable.
  */
-import type { SensorMetadata, SensorDataPoint, SensorTimeSeries } from '../types/sensor'
+import type { SensorMetadata, SensorTimeSeries } from '../types/sensor'
 
 // Mulberry32 seeded pseudo-random generator for fast deterministic sampling
 function mulberry32(seed: number) {
@@ -103,7 +103,7 @@ export function generateSensorTimeSeries(sensorId: string, durationSeconds = 360
   }
 
   const rand = mulberry32(seed)
-  const points: SensorDataPoint[] = []
+  const points: SensorTimeSeries['points'] = []
 
   // Base epoch: 2026-10-09T20:00:00Z
   const baseTimeMs = 1791576000000
