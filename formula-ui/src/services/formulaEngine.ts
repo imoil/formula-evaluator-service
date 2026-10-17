@@ -1,5 +1,6 @@
 import type { FormulaDefinition, FormulaDependencyInfo, SimulationResultPoint, SimulationMetrics } from '../types/formula'
 import { generateSensorTimeSeries } from './sensorDataGenerator'
+import { CircularBuffer } from './circularBuffer'
 
 /**
  * Tokenize an expression and extract referenced variables
@@ -212,6 +213,22 @@ export function getRequiredSensors(
   return Array.from(requiredSensors)
 }
 
+// Pre-compiled regular expressions for expression transpilation in createEvalFunction
+const RE_WINDOW_AVG = /\bwindow_avg\s*\(\s*(\d+)\s*\)/g
+const RE_WINDOW_MAX = /\bwindow_max\s*\(\s*(\d+)\s*\)/g
+const RE_WINDOW_MIN = /\bwindow_min\s*\(\s*(\d+)\s*\)/g
+const RE_ABS = /\babs\s*\(/g
+const RE_SQRT = /\bsqrt\s*\(/g
+const RE_ROUND = /\bround\s*\(/g
+const RE_FLOOR = /\bfloor\s*\(/g
+const RE_CEIL = /\bceil\s*\(/g
+const RE_MIN = /\bmin\s*\(/g
+const RE_MAX = /\bmax\s*\(/g
+const RE_POW = /\bpow\s*\(/g
+const RE_LOG = /\blog\s*\(/g
+const RE_SIN = /\bsin\s*\(/g
+const RE_COS = /\bcos\s*\(/g
+
 /**
  * Safe expression evaluation context
  */
@@ -220,20 +237,20 @@ function createEvalFunction(expressionStr: string): (ctx: Record<string, any>) =
   // 1. Replace power operator ^ with **
   // 2. Map window functions: window_avg(n) -> ctx.__window_avg(n)
   let transformed = expressionStr
-    .replace(/\bwindow_avg\s*\(\s*(\d+)\s*\)/g, 'ctx.__window_avg($1)')
-    .replace(/\bwindow_max\s*\(\s*(\d+)\s*\)/g, 'ctx.__window_max($1)')
-    .replace(/\bwindow_min\s*\(\s*(\d+)\s*\)/g, 'ctx.__window_min($1)')
-    .replace(/\babs\s*\(/g, 'Math.abs(')
-    .replace(/\bsqrt\s*\(/g, 'Math.sqrt(')
-    .replace(/\bround\s*\(/g, 'Math.round(')
-    .replace(/\bfloor\s*\(/g, 'Math.floor(')
-    .replace(/\bceil\s*\(/g, 'Math.ceil(')
-    .replace(/\bmin\s*\(/g, 'Math.min(')
-    .replace(/\bmax\s*\(/g, 'Math.max(')
-    .replace(/\bpow\s*\(/g, 'Math.pow(')
-    .replace(/\blog\s*\(/g, 'Math.log(')
-    .replace(/\bsin\s*\(/g, 'Math.sin(')
-    .replace(/\bcos\s*\(/g, 'Math.cos(')
+    .replace(RE_WINDOW_AVG, 'ctx.__window_avg($1)')
+    .replace(RE_WINDOW_MAX, 'ctx.__window_max($1)')
+    .replace(RE_WINDOW_MIN, 'ctx.__window_min($1)')
+    .replace(RE_ABS, 'Math.abs(')
+    .replace(RE_SQRT, 'Math.sqrt(')
+    .replace(RE_ROUND, 'Math.round(')
+    .replace(RE_FLOOR, 'Math.floor(')
+    .replace(RE_CEIL, 'Math.ceil(')
+    .replace(RE_MIN, 'Math.min(')
+    .replace(RE_MAX, 'Math.max(')
+    .replace(RE_POW, 'Math.pow(')
+    .replace(RE_LOG, 'Math.log(')
+    .replace(RE_SIN, 'Math.sin(')
+    .replace(RE_COS, 'Math.cos(')
 
   // Use Function constructor with 'ctx' argument
   const fnBody = `
@@ -320,12 +337,12 @@ export function simulateFormula(
   }
 
   // 5. Sliding window history buffers (keep last 100 points for window functions)
-  const historyBuffers = new Map<string, number[]>()
+  const historyBuffers = new Map<string, CircularBuffer>()
   for (const sId of requiredSensors) {
-    historyBuffers.set(sId, [])
+    historyBuffers.set(sId, new CircularBuffer(100))
   }
   for (const id of order) {
-    historyBuffers.set(id, [])
+    historyBuffers.set(id, new CircularBuffer(100))
   }
 
   // Pre-extract array bindings outside the time-series loop to eliminate repeated Map lookups
@@ -333,7 +350,7 @@ export function simulateFormula(
   const sensorSeriesList = sensorIdsList.map((sId) => sensorDataMap.get(sId))
   const sensorBufferList = sensorIdsList.map((sId) => historyBuffers.get(sId)!)
 
-  const primarySensorBuffer = historyBuffers.get(primarySensorId) || []
+  const primarySensorBuffer = historyBuffers.get(primarySensorId)
 
   const formulaIdsList = order
   const formulaFnList = order.map((formulaId) => compiledFns.get(formulaId))
@@ -367,7 +384,6 @@ export function simulateFormula(
       // Update sliding window buffer
       const buf = sensorBufferList[i]
       buf.push(val)
-      if (buf.length > 100) buf.shift()
     }
 
     // Default 'value' alias maps to primary sensor
@@ -377,20 +393,15 @@ export function simulateFormula(
 
     // Window aggregation helpers using pre-extracted primarySensorBuffer
     ctx.__window_avg = (windowSize: number) => {
-      const slice = primarySensorBuffer.slice(-Math.min(primarySensorBuffer.length, windowSize))
-      if (slice.length === 0) return 0
-      const sum = slice.reduce((acc, v) => acc + v, 0)
-      return sum / slice.length
+      return primarySensorBuffer ? primarySensorBuffer.avg(windowSize) : 0
     }
 
     ctx.__window_max = (windowSize: number) => {
-      const slice = primarySensorBuffer.slice(-Math.min(primarySensorBuffer.length, windowSize))
-      return slice.length > 0 ? Math.max(...slice) : 0
+      return primarySensorBuffer ? primarySensorBuffer.max(windowSize) : 0
     }
 
     ctx.__window_min = (windowSize: number) => {
-      const slice = primarySensorBuffer.slice(-Math.min(primarySensorBuffer.length, windowSize))
-      return slice.length > 0 ? Math.min(...slice) : 0
+      return primarySensorBuffer ? primarySensorBuffer.min(windowSize) : 0
     }
 
     // Evaluate formulas in topological order using pre-extracted bindings
@@ -409,7 +420,6 @@ export function simulateFormula(
           // Update formula's own history buffer
           const fBuf = formulaBufferList[i]
           fBuf.push(numRes)
-          if (fBuf.length > 100) fBuf.shift()
         } catch {
           ctx[formulaId] = 0
           intermediateValues[formulaId] = 0
