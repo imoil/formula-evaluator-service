@@ -79,7 +79,9 @@ public class StreamingEvaluatorE2ETest {
                 // StreamingEvaluatorJob 의 메인 메서드 호출 (Host 파라미터등은 원래라면 오버라이드 필요)
                 // 현재는 테스트용으로 Kafka 주소와 QuestDB 주소가 Testcontainer 포트로 달라서 바로 실행되지 않고
                 // 설정 오버라이딩 패턴이 필요하므로, 실제 동작은 모의화된 MiniClusterWithClientResource 에 위임합니다.
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                log.error("Exception in background job thread", e);
+            }
         });
         jobThread.start();
 
