@@ -143,3 +143,7 @@ formula-evaluator-service/
    * `SensorManagement.vue`에서 시뮬레이션 버튼 클릭 시 `sensorStore.selectSensor()` 및 `sensorStore.setExpression()`을 연쇄 호출하고 탭 전환을 트리거하여 일원화된 사용자 경험을 제공합니다.
 5. **테스트 안정성:**
    * Flink Keyed Broadcast Process Function 테스트 시 `ProcessFunctionTestHarnesses.forKeyedBroadcastProcessFunction`의 4번째 인자로 브로드캐스트 상태 디스크립터(`RuleBroadcastProcessFunction.RULE_STATE_DESCRIPTOR`)를 반드시 전달하여 상태 미등록 예외를 방지합니다.
+6. **관리자 동적 룰(Dynamic Rule) 발행 및 Flink 인메모리 일괄 동기화 (Bulk Sync):**
+   * `formula-api`의 [`RulePublisherService`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-api/src/main/java/com/imoil/formula/registry/service/RulePublisherService.java)는 Oracle DB의 활성 수식 센서를 `rule-data` 토픽으로 실시간 발행(`key = targetSensorId`)하며, 서버 시작 시 또는 REST 엔드포인트(`POST /api/v1/registry/sensors/rules/sync`), UI 상단 'Sync Rules to Flink' 버튼 클릭 시 Flink 메모리(`BroadcastState`)로 전체 활성 수식을 일괄 동기화(Bulk Sync)합니다.
+   * Flink 컨슈머는 `OffsetsInitializer.latest()`를 유지하여 과거 구버전 수식의 불필요한 재생(Replay Churn)을 방지하고, 단일 진실 공급원(SSOT)인 Oracle DB를 기준으로 메모리를 신속히 갱신합니다.
+   * Aviator 표현식 환경(`env`)에는 센서 값(`value`) 외에도 단일 일련번호(`SN_10001`, `10001`)를 상호 등록하여 표현식 내 센서 직접 참조 시 유연성을 제공합니다.

@@ -189,26 +189,240 @@ flowchart TD
 
 ## 4. 🛠️ 로컬 핸즈온(Hands-on) 실습 가이드
 
-### 1) 관리자 동적 룰(Dynamic Rule) 발행
-아래와 같이 단일 일련번호(`SN_10001`, `10002`)를 타깃으로 하는 룰을 JSON 형식으로 `rule-data` 토픽에 전송합니다:
-```bash
-# Rule 1 (SN_10001 -> 화씨 변환, 파생 일련번호 10201)
-echo '{"ruleId":"rule_fahrenheit","targetSensorId":"SN_10001","expression":"value * 1.8 + 32.0","derivedSensorId":"10201","usesWindow":false}' | docker exec -i formula-kafka kafka-console-producer --bootstrap-server localhost:9092 --topic rule-data
+본 실습 가이드는 로컬 환경에서 **인프라 기동 → 백엔드 및 Flink 스트리밍 엔진 기동 → 프론트엔드 UI 연동 → 대용량 센서 에뮬레이션 및 구간별 중간 처리 검증 → 동적 룰 핫 업데이트 → 안전한 프로세스 종료**까지의 전체 파이프라인 수명주기를 단계별로 직접 검증할 수 있도록 구성되었습니다.
 
-# Rule 2 (10002 -> 10초 이동 평균, 파생 일련번호 10202)
-echo '{"ruleId":"rule_moving_avg","targetSensorId":"10002","expression":"window_avg(10)","derivedSensorId":"10202","usesWindow":true}' | docker exec -i formula-kafka kafka-console-producer --bootstrap-server localhost:9092 --topic rule-data
+---
+
+### 4.0 🗺️ 서비스 구성 및 포트 맵 (Port & Service Map)
+
+실습 시작 전 각 프로세스가 점유하는 포트와 담당 역할을 확인합니다:
+
+| 계층 | 프로세스 / 서비스 | 포트 | 프로토콜 / 접속 엔드포인트 | 역할 |
+| :--- | :--- | :--- | :--- | :--- |
+| **인프라** | **Kafka Broker** | `9092` | PLAINTEXT | 센서 패킷(`sensor-data`) 및 동적 룰(`rule-data`) 메시징 |
+| **인프라** | **Zookeeper** | `2181` | TCP | Kafka 클러스터 메타데이터 관리 |
+| **인프라** | **QuestDB** | `9000` (Web UI), `9009` (ILP TCP), `8812` (PGWire) | 시계열 데이터 저장 및 실시간 SQL 조회 (Zero-GC 초고속 적재) |
+| **인프라** | **Oracle 19c** | `1521` | JDBC (`ORCLPDB1`) | 센서 메타데이터, IoT 장치 레지스트리 및 마스터 수식 영구 보관 |
+| **백엔드** | **formula-api** | `8080` | HTTP REST (`http://localhost:8080`) | 센서/룰 레지스트리 REST API 및 Kafka 룰 동기화 서비스 |
+| **엔진** | **formula-flink** | `8081` (Flink UI) | JVM Streaming Engine | 스트리밍 수식 평가, RocksDB 윈도우 집계, Broadcast State |
+| **프론트엔드**| **formula-ui** | `3000` | HTTP Web (`http://localhost:3000`) | 센서 관리, 룰 일괄 동기화(Sync to Flink), 실시간 스트리밍 대시보드 |
+| **생성기** | **formula-emulator**| CLI Daemon | Kafka Client | 대규모(1,000~5,000개) 가상 센서 데이터 고속 시뮬레이터 |
+
+---
+
+### 4.1 [1단계] 인프라 컨테이너 기동 및 헬스체크
+
+파이프라인 실행에 필요한 백본 인프라(Zookeeper, Kafka, QuestDB, Oracle 19c)를 기동합니다.
+
+#### 1) 컨테이너 기동
+프로젝트 루트 디렉토리에서 Podman Compose(또는 Docker Compose)를 백그라운드(`-d`)로 기동합니다:
+```bash
+# Podman 사용 시
+podman-compose -f docker/podman-compose.yml up -d
+
+# Docker Compose 사용 시
+docker compose -f docker/podman-compose.yml up -d
 ```
 
-### 2) QuestDB 웹 콘솔 조회 검증
-브라우저에서 `http://localhost:9000`에 접속하여 단일 일련번호로 적재된 데이터를 확인합니다:
+#### 2) 정상 기동 및 헬스체크 확인
+모든 컨테이너가 정상적으로 `Up` 상태인지 확인합니다:
+```bash
+podman ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+* **Kafka 브로커 헬스체크**:
+  ```bash
+  # Kafka 토픽 목록 조회 (정상 응답 시 0 반환)
+  podman exec -it kafka kafka-topics --bootstrap-server localhost:9092 --list
+  ```
+* **QuestDB 헬스체크**: 브라우저에서 `http://localhost:9000` 접속 후 웹 콘솔 화면이 열리는지 확인합니다.
+* **Oracle 19c 헬스체크**: 컨테이너 로그에서 `DATABASE IS READY TO USE!` 메시지가 출력되었는지 확인합니다:
+  ```bash
+  podman logs formula-oracle19c --tail 20
+  ```
+
+---
+
+### 4.2 [2단계] 백엔드(formula-api) 기동 및 기동 확인
+
+`formula-api`는 센서 마스터 레지스트리를 관리하며, 기동 시 DB에 저장된 활성 수식 룰을 Kafka `rule-data` 토픽으로 자동 발행(Startup Sync)합니다.
+
+#### 1) 백엔드 기동
+새 터미널 창을 열고 프로젝트 루트에서 실행합니다:
+```bash
+./gradlew :formula-api:bootRun
+```
+
+#### 2) 정상 기동 로그 및 자동 룰 동기화 확인
+터미널 로그에서 다음 메시지들이 출력되는지 확인합니다:
+1. `Started FormulaApiApplication in ... seconds` (Spring Boot 기동 완료)
+2. `[RulePublisherService] Synchronized 2 active formula rules to Kafka topic: rule-data` (초기 수식 룰 자동 브로드캐스트)
+
+#### 3) REST API 헬스체크 호출
+```bash
+curl -X GET http://localhost:8080/api/v1/registry/sensors
+```
+* **정상 응답**: `200 OK`와 함께 등록된 센서 목록(기본 마스터 센서 및 수식 센서) JSON이 반환됩니다.
+
+---
+
+### 4.3 [3단계] 스트리밍 엔진(formula-flink) 잡 기동 및 상태 확인
+
+Flink 스트리밍 평가 엔진은 Kafka로부터 센서 패킷과 동적 룰을 동시에 소비하여 `RuleBroadcastProcessFunction`으로 실시간 계산을 수행합니다.
+
+#### 1) Flink 스트리밍 잡 실행
+새 터미널 창을 열고 프로젝트 루트에서 실행합니다:
+```bash
+./gradlew :formula-flink:run
+```
+
+#### 2) 정상 연결 로그 확인
+터미널 콘솔에 다음과 같은 로그가 출력되는지 확인합니다:
+* `Connected to Kafka broker at localhost:9092`
+* `Subscribed to topics: sensor-data, rule-data`
+* `Initialized RocksDB StateBackend with window TTL 30m`
+* `RuleBroadcastProcessFunction ready to accept broadcast rules`
+
+> **참고**: Flink Web UI(`http://localhost:8081`)가 활성화된 경우 브라우저에서 실행 중인 토폴로지 그래프와 TaskManager 상태를 시각적으로 확인할 수 있습니다.
+
+---
+
+### 4.4 [4단계] 프론트엔드 UI(formula-ui) 기동 및 센서 레지스트리 확인
+
+웹 인터페이스를 통해 센서 메타데이터를 관리하고 Flink 메모리로의 룰 일괄 동기화 상태를 제어합니다.
+
+#### 1) 프론트엔드 개발 서버 기동
+새 터미널 창을 열고 `formula-ui` 디렉토리에서 실행합니다:
+```bash
+cd formula-ui
+npm run dev
+```
+
+#### 2) 웹 브라우저 접속 및 UI 확인
+1. 브라우저에서 `http://localhost:3000`으로 접속합니다.
+2. 상단 메뉴에서 **[Unified Sensor Registry]** 탭을 클릭합니다.
+3. 등록된 센서 목록 중 수식 센서(예: `SN_10201` - 화씨 변환, `SN_10202` - 이동평균)를 확인합니다.
+
+#### 3) Flink 룰 일괄 동기화(Sync Rules) 버튼 검증
+* 툴바 상단의 **"🔄 Sync Rules to Flink"** 버튼을 클릭합니다.
+* **정상 처리 확인**:
+  - 버튼에 로딩 스피너가 표시된 후 초록색 토스트 알림(`Successfully synchronized 2 formula rules to Flink via Kafka.`)이 팝업됩니다.
+  - `formula-api` 로그에 `Publishing rule to Kafka [rule-data]: target=SN_10001, derived=10201`이 출력됩니다.
+  - `formula-flink` 콘솔에 `[Broadcast Rule Updated] ruleId=rule_fahrenheit, targetSensorId=10001, expr=value * 1.8 + 32.0` 로그가 실시간 출력됩니다.
+
+---
+
+### 4.5 [5단계] 센서 에뮬레이터 기동 및 파이프라인 구간별 정상 처리 검증
+
+1,000개의 센서가 1초 주기로 실시간 데이터를 생성하도록 에뮬레이터를 기동하고, 데이터가 파이프라인의 각 구간을 통과하는 과정을 단계별로 검증합니다.
+
+#### 1) 센서 에뮬레이터 기동
+새 터미널 창을 열고 프로젝트 루트에서 실행합니다:
+```bash
+./gradlew :formula-emulator:run --args="--sensor-count 1000 --emit-interval-ms 1000"
+```
+* 터미널에 `[SensorEmulator] Emitting batch of 1000 sensor readings to Kafka topic 'sensor-data'...` 로그가 1초마다 지속적으로 출력됩니다.
+
+---
+
+#### 2) 중간 과정 처리 검증 (4-Step Verification)
+
+데이터가 파이프라인의 각 컴포넌트를 정확히 경유하는지 아래의 4단계로 검증합니다:
+
+#### [검증 A] Kafka 인제스천 확인 (Kafka Console Consumer)
+Kafka 브로커에 센서 데이터가 정상 유입되는지 확인합니다:
+```bash
+podman exec -it kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic sensor-data \
+  --max-messages 5
+```
+* **정상 결과**: `{"sensorId":"SN_10001","value":25.4,"timestamp":...,"status":"NORMAL"}` 형태의 JSON 메시지가 즉시 콘솔에 출력됩니다.
+
+#### [검증 B] Flink 스트리밍 평가 엔진 처리 확인
+Flink 터미널 로그를 확인하여 원본 센서와 동적 룰 매칭이 작동하는지 검증합니다:
+* 원본 센서 `SN_10001`(또는 `10001`)의 패킷을 수신했을 때:
+  ```text
+  [Aviator Evaluation] Rule applied: rule_fahrenheit on sensor 10001 -> input=25.4, result=77.72, derivedSensorId=10201
+  [QuestDbIlpSink] Emitted derived sensor event: sensorId=10201, value=77.72
+  ```
+* 룰에 정의된 `derivedSensorId`가 `"10201"`로 부여되어 QuestDB Sink로 정상 방출되는지 확인합니다.
+
+#### [검증 C] QuestDB 시계열 저장 확인 (Web Console SQL)
+브라우저에서 QuestDB 웹 콘솔(`http://localhost:9000`)에 접속하여 원본 센서와 파생 센서가 동시에 적재되고 있는지 SQL 쿼리를 실행합니다:
 ```sql
--- 원본 센서 및 파생 수식 센서 데이터 실시간 조회
+-- 원본 센서(10001) 및 파생 화씨 센서(10201) 실시간 데이터 조회
 SELECT timestamp, sensor_id, value, state, has_inaccurate_data
 FROM sensor_data
-WHERE sensor_id IN ('10001', '10201', '10002', '10202')
+WHERE sensor_id IN ('10001', '10201', 'SN_10001')
 ORDER BY timestamp DESC
-LIMIT 50;
+LIMIT 20;
 ```
+* **정상 결과**: 동일 타임스탬프 구간에서 원본 섭씨 값(`25.4`)과 함께 공식에 의해 계산된 파생 화씨 값(`77.72`)이 `sensor_id = '10201'`로 함께 저장되는 것을 확인할 수 있습니다.
+
+#### [검증 D] 프론트엔드 실시간 대시보드 시각화 확인
+1. 브라우저에서 `http://localhost:3000`의 **[Realtime Monitoring]** 탭으로 이동합니다.
+2. 센서 목록에서 `10001`(원본 온도)과 `10201`(파생 화씨)을 선택합니다.
+3. 1초 주기로 두 곡선이 실시간 스트리밍 차트로 매핑되어 시각화되는지 확인합니다.
+
+---
+
+### 4.6 [6단계] 동적 룰(Dynamic Rule) 무중단 핫 업데이트 검증
+
+Flink 애플리케이션을 **재시작하지 않고** 비즈니스 수식을 실시간으로 변경했을 때 즉각 반영되는지 검증합니다.
+
+#### 1) 수식 변경 및 재동기화 (방법 1 또는 방법 2)
+* **방법 1 (웹 UI 권장)**:
+  1. `http://localhost:3000`의 **[Unified Sensor Registry]** 탭에서 `SN_10201` 수식 센서의 [Edit] 버튼 클릭.
+  2. 수식을 `value * 1.8 + 32.0`에서 `value * 2.0 + 10.0`으로 수정 후 저장.
+  3. 상단 **"🔄 Sync Rules to Flink"** 버튼 클릭.
+* **방법 2 (Kafka CLI 직접 전송)**:
+  ```bash
+  echo '{"ruleId":"rule_fahrenheit","targetSensorId":"SN_10001","expression":"value * 2.0 + 10.0","derivedSensorId":"10201","usesWindow":false}' | podman exec -i kafka kafka-console-producer --bootstrap-server localhost:9092 --topic rule-data
+  ```
+
+#### 2) 무중단 즉시 반영 검증
+1. Flink 엔진이 재시작되지 않고 가동 상태를 유지하는 것을 확인합니다.
+2. Flink 로그에 즉시 새로운 룰 반영 로그가 출력됩니다:
+   ```text
+   [Broadcast Rule Updated] ruleId=rule_fahrenheit, expr=value * 2.0 + 10.0
+   [Aviator Evaluation] Rule applied: rule_fahrenheit -> input=25.0, result=60.0, derivedSensorId=10201
+   ```
+3. QuestDB(`http://localhost:9000`)에서 SQL을 재조회하여 계산 결과가 신규 공식(`25.0 * 2.0 + 10.0 = 60.0`)으로 즉각 전환되어 적재되는 것을 확인합니다.
+
+---
+
+### 4.7 [7단계] 실습 프로세스 안전 종료 및 자원 정리 (Graceful Shutdown)
+
+실습이 끝난 후 시스템 자원의 누수 없이 파이프라인을 안전하게 역순으로 종료합니다.
+
+#### 1) 애플리케이션 프로세스 정상 종료 (역순 종료)
+각 프로세스가 실행 중인 터미널에서 `Ctrl + C`를 입력하여 안전하게 종료합니다:
+
+1. **[1단계: 센서 에뮬레이터 중지]**:
+   - 에뮬레이터 터미널에서 `Ctrl + C`를 눌러 Kafka 프로듀서 전송을 중단합니다.
+2. **[2단계: Flink 스트리밍 잡 중지]**:
+   - Flink 터미널에서 `Ctrl + C`를 입력합니다. RocksDB State가 안전하게 디스크에 플러시되고 컨슈머가 정상 언서브스크라이브됩니다.
+3. **[3단계: 프론트엔드 개발 서버 중지]**:
+   - `formula-ui` 터미널에서 `Ctrl + C`를 눌러 Vite 개발 서버를 종료합니다.
+4. **[4단계: 백엔드 API 서버 중지]**:
+   - `formula-api` 터미널에서 `Ctrl + C`를 눌러 Spring Boot 애플리케이션 컨텍스트를 정상 종료합니다.
+
+#### 2) 인프라 컨테이너 정리
+```bash
+# A. 데이터 볼륨을 유지하며 컨테이너만 정지 (다음 실습 시 데이터 보존)
+podman-compose -f docker/podman-compose.yml down
+
+# B. (선택사항) 테스트 데이터를 완전히 초기화하고 클린 상태로 정리할 경우
+podman-compose -f docker/podman-compose.yml down -v
+```
+
+#### 3) 잔여 프로세스 및 포트 점유 해제 점검
+종료 후 포트 충돌이 남아있는지 확인합니다 (PowerShell):
+```powershell
+# 주요 포트 점유 여부 확인
+Get-NetTCPConnection -LocalPort 8080, 8081, 9092, 9000, 3000 -ErrorAction SilentlyContinue | Format-Table LocalAddress, LocalPort, State, OwningProcess
+```
+* 아무 결과도 출력되지 않으면 모든 리소스가 정상적으로 정리된 것입니다.
 
 ---
 

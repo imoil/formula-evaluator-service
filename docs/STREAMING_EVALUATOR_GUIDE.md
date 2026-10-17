@@ -135,6 +135,14 @@ flowchart TD
 룰 정의에 `derivedSensorId`가 지정되어 있을 경우(예: `"10201"`), 수식 연산 결과로 방출되는 파생 센서의 `sensorId`가 `"10201"`로 지정되어 방출됩니다.
 미지정 시 기존 호환성을 위해 `sensorId + "_derived"`로 방출됩니다.
 
+#### ③ 단일 일련번호 변수 자동 바인딩 (`SN_10001` & `10001` in Aviator `env`)
+수식 표현식에서 `value * 1.8 + 32.0`뿐만 아니라 `SN_10001 * 1.8 + 32.0` 또는 `10001 * 1.8 + 32.0`처럼 센서 식별자를 직접 참조하는 표현식도 런타임 예외 없이 평가될 수 있도록 `env.put("value", value.getValue())` 외에도 `env.put(value.getSensorId(), value.getValue())` 및 접두사/단일 일련번호 상호 바인딩을 자동으로 수행합니다.
+
+#### ④ 백엔드 실시간 룰 발행 및 인메모리 일괄 동기화 (Bulk Sync)
+- Flink 컨슈머는 `OffsetsInitializer.latest()`를 유지하여 과거 수십 차례 수정된 구버전 수식의 Replay Churn을 차단합니다.
+- `formula-api`의 `RulePublisherService`가 Oracle DB 최신 수식 센서를 실시간(`createSensor`, `updateSensor`) 또는 일괄(`POST /api/v1/registry/sensors/rules/sync`, UI "Sync Rules to Flink" 버튼)로 카프카 `rule-data` 토픽에 발행합니다.
+- TaskManager의 `RuleBroadcastProcessFunction`은 브로드캐스트 스트림을 통해 실시간으로 `BroadcastState`를 최신화하여 무중단 수식 평가를 보장합니다.
+
 ---
 
 ## 4. 운영 및 검증 가이드
@@ -146,6 +154,7 @@ flowchart TD
 * [`RuleBroadcastProcessFunctionTest.java`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/RuleBroadcastProcessFunctionTest.java):
   - 단일 일련번호 `SN_10001`에 대한 룰 브로드캐스트와 실시간 스트림 센서(`10001`)의 매칭 평가 검증.
   - 파생 센서 `derivedSensorId: 10201`이 정상 계산되어 방출됨을 검증.
+  - `testBulkDynamicRuleBroadcastAndEvaluation`: 복수 개의 동적 룰 브로드캐스트 유입 시 각 센서별로 독립 수식 평가 및 파생 센서 방출 검증 통과.
 
 ---
 

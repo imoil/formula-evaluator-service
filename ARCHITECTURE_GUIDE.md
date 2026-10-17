@@ -82,6 +82,7 @@ flowchart TD
     subgraph OnDemandPath["Path 2: 온디멘드 즉석 평가 및 레지스트리 API (formula-api :8080)"]
         RegistryCtrl["SensorRegistryController (/api/v1/registry/sensors)"]
         RegistrySvc["SensorRegistryService (@Transactional, JPA CRUD)"]
+        RulePubSvc["RulePublisherService (Kafka Producer: rule-data)"]
         EvalCtrl["OnDemandEvaluationController (/api/v1/evaluate)"]
         SensorCtrl["SensorController (/api/v1/sensors)"]
         EvalSvc["OnDemandEvaluationService (LinkedList Window & Map Reuse)"]
@@ -91,8 +92,11 @@ flowchart TD
         MockAdapter["MockNormalDistributionDataSourceAdapter"]
 
         RegistryCtrl --> RegistrySvc
+        RegistryCtrl -->|POST /sensors/rules/sync| RulePubSvc
         RegistrySvc <-->|JPA / OJDBC11| OracleDB
+        RegistrySvc -->|수식 등록/수정 시| RulePubSvc
         RegistrySvc -->|등록 시 동기화| Resolver
+        RulePubSvc -->|동적 룰 발행 & 일괄 동기화| RuleTopic
         EvalCtrl --> EvalSvc
         SensorCtrl --> Catalog
         Catalog <--> RegistrySvc
@@ -198,8 +202,10 @@ formula-evaluator-service/
 │       │   ├── repository/
 │       │   │   └── SensorRegistryRepository.java # JPA 레포지토리 (복합 유니크 검증, 검색 쿼리)
 │       │   └── service/
-│       │       └── SensorRegistryService.java   # 일련번호 채번, 동기화, SensorSerialResolver 연동
+│       │       ├── SensorRegistryService.java   # 일련번호 채번, 동기화, SensorSerialResolver 연동
+│       │       └── RulePublisherService.java    # [신규] 카프카 rule-data 동적 룰 발행 및 Flink 일괄 동기화
 │       ├── config/
+│       │   ├── KafkaProducerConfig.java         # [신규] rule-data 발행용 KafkaTemplate 구성
 │       │   ├── QuestDBConfig.java               # QuestDB Sender 클라이언트 & No-Op Fallback Dynamic Proxy
 │       │   └── TimeSeriesDataSourceConfig.java  # DataSourceType 조건부 Bean 구성
 │       ├── datasource/
@@ -418,6 +424,40 @@ sequenceDiagram
     BroadcastFn->>QuestDB: 원본 센서 ILP 방출 (sensorId="10001", value=45.0)
 ```
 
+### 5.2 관리자 동적 룰 발행 및 Flink 일괄 동기화 (Dynamic Rule Publishing & Bulk Sync)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 관리자 / UI (SensorManagement.vue)
+    participant API as formula-api (SensorRegistryController)
+    participant Svc as SensorRegistryService
+    participant Oracle as Oracle 19c SENSOR_REGISTRY
+    participant Pub as RulePublisherService (KafkaTemplate)
+    participant Kafka as Apache Kafka (topic: rule-data)
+    participant Flink as Flink TaskManagers (BroadcastState)
+
+    alt 1. 개별 수식 센서 신규 등록/수정 시 실시간 룰 발행
+        Admin->>API: POST /api/v1/registry/sensors (또는 PUT)
+        API->>Svc: createSensor(request)
+        Svc->>Oracle: SENSOR_REGISTRY 저장/갱신
+        Svc->>Pub: publishFormulaSensor(entity)
+        Pub->>Kafka: send("rule-data", key=targetSensorId, DynamicRule JSON)
+        Kafka-->>Flink: 룰 브로드캐스트 전파 및 BroadcastState 즉시 갱신
+        API-->>Admin: 201 Created (SensorRegistryDto)
+    else 2. 전체 활성 수식 센서 Flink 일괄 동기화 (Bulk Sync 또는 서버 재기동)
+        Admin->>API: POST /api/v1/registry/sensors/rules/sync (또는 UI "Sync Rules to Flink" 클릭)
+        API->>Pub: syncAllFormulaRules()
+        Pub->>Oracle: findBySensorTypeAndStatus(FORMULA, ACTIVE) 일괄 조회
+        Oracle-->>Pub: List<SensorRegistryEntity>
+        loop 모든 활성 수식 센서
+            Pub->>Kafka: send("rule-data", key=targetSensorId, DynamicRule JSON)
+        end
+        Kafka-->>Flink: Flink 메모리 BroadcastState 전체 최신화
+        API-->>Admin: 200 OK ({ syncedCount: N, message: "Successfully synchronized N rules to Kafka" })
+    end
+```
+
 ---
 
 ## 6. 플러그형 시계열 데이터 소스 아키텍처 (DataSource Adapters)
@@ -507,6 +547,14 @@ public class WindowRateFunction extends AbstractWindowFunction {
 * **온디멘드 경로**: [`MockSensorCatalogService`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-api/src/main/java/com/imoil/formula/service/MockSensorCatalogService.java)가 Oracle DB를 조회하여 일련번호(`10001`, `SN_10001`) 기반의 1시간 시계열 데이터를 제공.
 * **실시간 Flink 경로**: [`RuleBroadcastProcessFunction`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/main/java/com/imoil/formula/flink/RuleBroadcastProcessFunction.java)에서 `10001`과 `SN_10001`을 양방향 매칭하고, 수식 연산 결과를 수식 센서의 일련번호(`rule.derivedSensorId`)로 QuestDB에 적재.
 * **프론트엔드 UI**: [`SensorManagement.vue`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-ui/src/components/SensorManagement.vue)에서 센서를 관리하고, **"⚡ On-Demand Simulation"** 클릭 한 번으로 시뮬레이터 탭으로 전환되어 즉시 파형과 연산 결과를 확인할 수 있습니다.
+
+### 8.5 관리자 동적 룰 발행 및 Flink 인메모리 일괄 동기화 (Bulk Sync)
+* **문제 정의**: Flink 스트리밍 잡은 `OffsetsInitializer.latest()` 정책으로 구동되므로, 전체 클러스터 재기동 시 인메모리 `BroadcastState`가 비어 실시간 수식 평가가 누락될 수 있음.
+* **해결 원리**:
+  1. 단일 진실 공급원(SSOT)인 Oracle 19c `SENSOR_REGISTRY`의 활성 수식 센서 목록을 `RulePublisherService`가 조회.
+  2. 수식 센서 엔티티를 `DynamicRule` 객체(`targetSensorId`, `expression`, `derivedSensorId`, `usesWindow`)로 변환하여 Kafka `rule-data` 토픽으로 일괄 발행.
+  3. 백엔드 시작 시 자동 1회 발행(`@EventListener(ApplicationReadyEvent.class)`) 및 관리자 일괄 동기화 API (`POST /api/v1/registry/sensors/rules/sync`), 프론트엔드 **"🔄 Sync Rules to Flink"** 원클릭 연동.
+  4. Flink TaskManager는 작업 재시작 없이 메모리를 최신 상태로 갱신하여 무중단 스트리밍 평가 보장.
 
 ---
 

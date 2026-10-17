@@ -342,6 +342,22 @@ Content-Type: application/json
 
 ---
 
+#### 1.5 활성 수식 센서 룰 Flink 일괄 동기화 (`POST /api/v1/registry/sensors/rules/sync`)
+Oracle 19c `SENSOR_REGISTRY`에 등록된 모든 활성 수식 센서를 Kafka `rule-data` 토픽으로 일괄 발행하여 Flink TaskManager의 인메모리 `BroadcastState`를 작업 재기동 없이 즉시 최신화합니다.
+```http
+POST /api/v1/registry/sensors/rules/sync
+Content-Type: application/json
+```
+응답 예시:
+```json
+{
+  "syncedCount": 2,
+  "message": "Successfully synchronized 2 rules to Kafka"
+}
+```
+
+---
+
 ### 2. 온디멘드 수식 평가 (`GET /api/v1/evaluate`)
 특정 기간의 센서 데이터를 시계열 저장소(또는 Mock 어댑터)에서 인출하여 동적 수식을 즉석 계산합니다.
 

@@ -139,6 +139,11 @@ flowchart TD
   - 기존 등록 센서 건너뛰기(`skipExisting: true`) 옵션 제공.
 * **⚡ On-Demand Simulation 원클릭 연계**:
   - 각 센서 행의 번개 모양 아이콘(`⚡`)을 클릭하면 즉시 `FormulaSimulation` 탭으로 전환되며, 해당 센서가 대상 스트림으로 자동 선택되어 시뮬레이션이 실행됩니다.
+* **🔄 Flink 룰 일괄 동기화 (Sync Rules to Flink)**:
+  - 상단 툴바의 **"Sync Rules to Flink"** 버튼을 클릭하여 Oracle 19c `SENSOR_REGISTRY`의 모든 활성 수식 센서를 Kafka `rule-data` 토픽으로 일괄 발행.
+  - Flink 클러스터 작업(Job) 재기동 없이 즉시 워커 메모리(`BroadcastState`)로 전파되어 실시간 수식 평가 활성화.
+  - 원클릭 시 로딩 애니메이션 및 스낵바 완료 알림(`성공적으로 N개의 룰이 Flink로 동기화되었습니다`) 제공.
+  - 오프라인 환경이나 테스트 시 로컬 Mock 스토리지 기반 Standalone 동기화로 무중단 폴백.
 
 ---
 
@@ -148,7 +153,7 @@ flowchart TD
 ```bash
 cd formula-ui
 
-# 25개 단위/통합 테스트 전체 실행 (Vitest)
+# 26개 단위/통합 테스트 전체 실행 (Vitest)
 pnpm test
 
 # 프로덕션 번들 타입 체크 및 빌드

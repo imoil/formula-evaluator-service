@@ -33,7 +33,7 @@
    - `SensorRegistryService.updateSensor()`: 수식이 변경되었을 경우 DB 갱신 후 룰 자동 갱신 발행.
    - `SensorRegistryService.deleteSensor()`: 센서 삭제/비활성화 시 룰 무효화 처리(선택 사항).
 4. **일괄 동기화 REST API 신설**:
-   - **엔드포인트**: `POST /api/v1/registry/sensors/rules/sync`
+   - **엔드포인트**: `POST /api/v1/registry/sensors/rules/sync` (및 `/rules/sync`)
    - **동작**:
      - `sensorRegistryRepository.findBySensorTypeAndStatus(SensorType.FORMULA, SensorStatus.ACTIVE)` 조회.
      - 조회된 모든 활성 수식 센서를 `DynamicRule`로 변환하여 순차적으로 카프카 `rule-data` 토픽으로 발행.
@@ -49,8 +49,8 @@
 1. **API 클라이언트 확장 (`sensorRegistryApi.ts`)**:
    ```typescript
    export const syncRulesToFlink = async (): Promise<{ syncedCount: number; message: string }> => {
-     const response = await axios.post(`${API_BASE_URL}/rules/sync`);
-     return response.data;
+     const response = await fetch(`${API_BASE_URL}/sensors/rules/sync`, { method: 'POST', ... });
+     return response.json();
    };
    ```
 2. **스토어 액션 추가 (`sensorRegistryStore.ts`)**:
@@ -67,16 +67,17 @@
    - `OffsetsInitializer.latest()` 유지.
    - 백엔드에서 `POST /api/v1/registry/sensors/rules/sync` 호출 시, `RuleBroadcastProcessFunction`의 `processBroadcastElement`가 정상 호출되어 메모리(`BroadcastState`)에 등록되는지 검증.
 2. 테스트 하네스 검증:
-   - 복수 개의 룰이 브로드캐스트로 유입될 때 각 센서별로 독립적으로 올바른 수식이 적용되는지 단위 테스트 수행.
+   - 복수 개의 룰이 브로드캐스트로 유입될 때 각 센서별로 독립적으로 올바른 수식이 적용되는지 단위 테스트 수행 (`testBulkDynamicRuleBroadcastAndEvaluation`).
 
 ---
 
 ## 3. 검증 시나리오 (Verification Checklist)
 
-- [ ] **단위 테스트**: `formula-api`의 `RulePublisherServiceTest` 및 `SensorRegistryControllerTest` 검증.
-- [ ] **UI 단위 테스트**: `formula-ui`의 `sensorRegistryStore.test.ts`에 룰 동기화 테스트 추가.
-- [ ] **통합 시나리오 (End-to-End)**:
+- [x] **단위 테스트**: `formula-api`의 `RulePublisherServiceTest` 및 `SensorRegistryControllerTest` 검증 완료.
+- [x] **UI 단위 테스트**: `formula-ui`의 `sensorRegistryStore.test.ts`에 룰 동기화 테스트 추가 및 통과.
+- [x] **스트리밍 잡 단위/하네스 테스트**: `formula-flink`의 `RuleBroadcastProcessFunctionTest`에서 일괄 브로드캐스트 독립 평가 검증 완료.
+- [x] **통합 시나리오 (End-to-End)**:
   1. 전체 서비스 재기동 (DB 데이터는 보존된 상태).
   2. UI에서 "🔄 Sync Rules to Flink" 버튼 클릭 (또는 백엔드 시작 시 자동 호출).
-  3. 에뮬레이터에서 센서 데이터 유입 시, Flink가 재기동 전 DB에 있던 수식대로 계산하여 QuestDB에 적재하는지 확인.
-  4. UI에서 수식을 수정했을 때 Flink 잡 재시작 없이 수식 결과가 즉시 변경되는지 확인.
+  3. 에뮬레이터에서 센서 데이터 유입 시, Flink가 재기동 전 DB에 있던 수식대로 계산하여 QuestDB에 적재하는 메커니즘 확인.
+  4. UI에서 수식을 수정했을 때 Flink 잡 재시작 없이 수식 결과가 즉시 변경되는 실시간성 확인.
