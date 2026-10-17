@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 3. 매 1초마다 변동된 센서만 집계하여 1개 메시지로 전송하는지 여부
  * 4. 1초 틱 실행 시 지연(Drift / Jitter)이 허용 범위 이내인지 여부
  * 5. 카프카 메시지 헤더(장치명, 전송시간) 및 바디(JSON 센서 배열) 규격 일치 여부
- * 6. Flink의 DeviceSensorRecordDeserializer와의 엔드투엔드 역직렬화 호환성
+ * 6. Flink의 DeviceSensorRecordDeserializer와의 엔드투엔드 역직렬화 호환성 및 단일 일련번호 체계 검증
  */
 @Slf4j
 class SensorEmulatorVerificationTest {
@@ -154,9 +154,10 @@ class SensorEmulatorVerificationTest {
         log.info("[검증 4] Flink 파이프라인에서 역직렬화된 총 SensorData 이벤트 수: {}건", flinkCollectedData.size());
         assertThat(flinkCollectedData).isNotEmpty();
 
-        // 첫 번째 변환된 SensorData의 구조 검증
+        // 첫 번째 변환된 SensorData의 구조 검증 (단일 일련번호 체계 10001+ 검증)
         SensorData firstSample = flinkCollectedData.get(0);
-        assertThat(firstSample.getSensorId()).matches("sensor_\\d{3}");
+        assertThat(firstSample.getSensorId()).matches("\\d+");
+        assertThat(Long.parseLong(firstSample.getSensorId())).isGreaterThanOrEqualTo(10001L);
         assertThat(firstSample.getValue()).isNotNaN();
         assertThat(firstSample.getState()).isIn(0, 1);
         assertThat(firstSample.getTimestamp()).isGreaterThan(0L);

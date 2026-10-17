@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.imoil.formula.domain.SensorData;
 import com.imoil.formula.domain.SensorItem;
+import com.imoil.formula.domain.SensorSerialResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
@@ -20,11 +21,13 @@ import java.util.List;
 /**
  * 에뮬레이터가 전송한 IoT 카프카 메시지를 Flink의 SensorData 스트림으로 역직렬화하는 스키마.
  * 
+ * 카프카 컨슈머와 Flink DataSource 사이에 위치하여,
+ * 에뮬레이터의 [장치번호 + 장치 내부 센서 인덱스]를 센서 관리 체계의 [단일 일련번호(serialNumber)]로
+ * 변환(Mapping)하여 Flink 스트림으로 방출합니다.
+ * 
  * - 헤더: deviceId (장치명), timestamp (전송 시간)
  * - 바디: 변동된 센서들의 JSON 배열 ([ { "sensorIndex": 0, "value": 24.5, "status": "normal" }, ... ])
- * 
- * 1개의 카프카 레코드에서 변동된 센서 수만큼 SensorData를 평탄화(FlatMap)하여 방출합니다.
- * 하위 호환성을 위해 Envelope({header, body}) 및 기존 단일 SensorData JSON 포맷도 모두 지원합니다.
+ * - 매핑: SensorSerialResolver를 통해 (deviceId, sensorIndex) -> 일련번호 ("10001") 변환
  */
 @Slf4j
 public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializationSchema<SensorData>, ResultTypeQueryable<SensorData> {
@@ -34,13 +37,26 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
     public static final String HEADER_DEVICE_ID = "deviceId";
     public static final String HEADER_TIMESTAMP = "timestamp";
 
+    private final SensorSerialResolver serialResolver;
     private transient ObjectMapper objectMapper;
+
+    public DeviceSensorRecordDeserializer() {
+        this(SensorSerialResolver.getInstance());
+    }
+
+    public DeviceSensorRecordDeserializer(SensorSerialResolver serialResolver) {
+        this.serialResolver = (serialResolver != null) ? serialResolver : SensorSerialResolver.getInstance();
+    }
 
     private ObjectMapper getMapper() {
         if (objectMapper == null) {
             objectMapper = new ObjectMapper();
         }
         return objectMapper;
+    }
+
+    private SensorSerialResolver getResolver() {
+        return (serialResolver != null) ? serialResolver : SensorSerialResolver.getInstance();
     }
 
     @Override
@@ -107,7 +123,7 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
                         .readValue(rootNode.get("body"));
                 emitSensorItems(items, deviceId, timestamp, out);
             } else if (rootNode.has("sensorId")) {
-                // 기존 레거시 단일 SensorData JSON
+                // 레거시 단일 SensorData JSON
                 SensorData singleData = mapper.treeToValue(rootNode, SensorData.class);
                 if (singleData.getTimestamp() <= 0) {
                     singleData.setTimestamp(timestamp);
@@ -126,9 +142,11 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
         if (items == null || items.isEmpty()) {
             return;
         }
+        SensorSerialResolver resolver = getResolver();
         for (SensorItem item : items) {
-            // 센서 고유 식별자: "sensor_042" (또는 "DEVICE-001_sensor_042" 형태 매핑 가능)
-            String sensorId = String.format("sensor_%03d", item.getSensorIndex());
+            // 카프카 컨슈머와 Flink Datasource 사이의 단일 일련번호 매핑 단계
+            long serialNumber = resolver.resolveSerialNumber(deviceId, item.getSensorIndex());
+            String sensorId = String.valueOf(serialNumber);
             int state = "down".equalsIgnoreCase(item.getStatus()) ? 1 : 0;
 
             SensorData sensorData = SensorData.builder()
