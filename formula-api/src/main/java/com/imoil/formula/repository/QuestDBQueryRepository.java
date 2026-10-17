@@ -30,7 +30,7 @@ public class QuestDBQueryRepository {
         }
 
         // QuestDB는 PGWire를 통해 통신하므로 JdbcTemplate 활용 가능
-        // FILL(PREV) 를 통해 비어있는 시간대 보관
+        // FILL(PREV) 를 통해 비어있는 시간대 보간
         // has_inaccurate_data 컬럼이 boolean 타입이므로, 그룹 연산 시 정수형으로 변환 후 max를 사용하여
         // 하나라도 부정확한 데이터가 포함되어 있다면 1(true)이 되도록 처리합니다.
         String sql = """
