@@ -1,5 +1,8 @@
 package com.imoil.formula.flink;
 
+import java.time.Instant;
+import java.util.Properties;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.imoil.formula.domain.DynamicRule;
 import com.imoil.formula.domain.SensorData;
@@ -17,9 +20,6 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-
-import java.time.Instant;
-import java.util.Properties;
 
 @Slf4j
 @Testcontainers(disabledWithoutDocker = true)
