@@ -6,7 +6,7 @@
 [![Apache Flink](https://img.shields.io/badge/Apache%20Flink-1.19.3-E6526F.svg)](https://flink.apache.org/)
 [![QuestDB](https://img.shields.io/badge/QuestDB-10.0.1-pink.svg)](https://questdb.io/)
 [![AviatorScript](https://img.shields.io/badge/AviatorScript-5.9.0-blue.svg)](https://github.com/killme2008/aviatorscript)
-[![Vue.js](https://img.shields.io/badge/Vue.js-3.5-42b883.svg)](https://vuejs.org//)
+[![Vue.js](https://img.shields.io/badge/Vue.js-3.5-42b883.svg)](https://vuejs.org/)
 [![Vuetify](https://img.shields.io/badge/Vuetify-4.2-1867C0.svg)](https://vuetifyjs.com/)
 
 본 프로젝트는 1초 이하 간격으로 유입되는 수백만 대의 IoT 센서 시계열 데이터를 지연 없이 수집하고, 사용자가 정의한 동적 수식(Formula)과 윈도우 집계 로직을 즉각 컴파일하여 파생 데이터를 계산하는 **고성능 듀얼 패스(Dual-Path) 분산 처리 시스템**입니다.
@@ -17,7 +17,7 @@
 
 ### 1. 듀얼 패스 실행 아키텍처 (Dual-Path Architecture)
 
-시스템은 실시간성과 분석 성능을 극대화하기 위해 두 가지 상호 보완적인 처리 경로를 제공합니다.
+시스템은 실시간성과 분석 성능을 극대화하기 위해 두 가지 상호 보완적인 처리 경로와 인터랙티브 웹 UI를 제공합니다.
 
 ```mermaid
 flowchart TD
@@ -26,7 +26,7 @@ flowchart TD
         RuleInput["관리자 동적 룰 정의 (수십만 개)"]
     end
 
-    subgraph KafkaCluster["Apache Kafka (Message Broker)"]
+    subgraph KafkaCluster["Apache Kafka 3.9 (Message Broker)"]
         SensorTopic["topic: sensor-data"]
         RuleTopic["topic: rule-data"]
     end
@@ -38,10 +38,13 @@ flowchart TD
         BroadcastState["Rule Broadcast State (작업자 분산 전파)"]
         KeyedStream["KeyedStream by sensorId (수평 분산)"]
         RocksDBState["RocksDB State Backend (30분 슬라이딩 윈도우 + TTL)"]
+        SecCheck1["ExpressionValidator (수식 샌드박스 검증)"]
         AviatorJIT1["AviatorScript 5.9.0 JIT 컴파일러 (바이트코드 캐시)"]
-        ILPSink["QuestDB ILP Sink (비동기 배치 플러시)"]
+        ILPSink["QuestDB ILP Sink (비동기 배치 플러시, 10만 건)"]
 
         RuleTopic -->|Broadcast| BroadcastState
+        BroadcastState --> SecCheck1
+        SecCheck1 --> AviatorJIT1
         SensorTopic --> KeyedStream
         KeyedStream & BroadcastState --> AviatorJIT1
         AviatorJIT1 <--> RocksDBState
@@ -49,28 +52,30 @@ flowchart TD
     end
 
     subgraph StorageLayer["시계열 데이터 저장소"]
-        QuestDB[("QuestDB 10.0.1 (ILP / PGWire)")]
+        QuestDB[("QuestDB 10.0.1 (ILP / PGWire SQL)")]
     end
 
     ILPSink -->|ILP TCP/HTTP| QuestDB
 
-    subgraph OnDemandPath["Path 2: 온디맨드 즉석 평가 경로 (Spring Boot REST API & Vue 3 UI)"]
+    subgraph OnDemandPath["Path 2: 온디맨드 즉석 평가 경로 (Spring Boot 3.5 & Vue 3 UI)"]
         ClientReq["대시보드 / Frontend UI (:3000)"]
         Controller1["OnDemandEvaluationController (/api/v1/evaluate)"]
         Controller2["SensorController (/api/v1/sensors)"]
-        Service["OnDemandEvaluationService"]
+        SecCheck2["ExpressionValidator (수식 검증)"]
+        Service["OnDemandEvaluationService (LinkedList Window & Map Reuse)"]
         Catalog["MockSensorCatalogService (100개 센서 메타데이터 원천)"]
         AdapterLayer["TimeSeriesDataSourceAdapter 인터페이스"]
-        QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 다운샘플링)"]
+        QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 화이트리스트 검증)"]
         MockAdapter["MockNormalDistributionDataSourceAdapter (100개 센서 Mock)"]
         RDBMSAdapter["RdbmsDataSourceAdapter"]
         BufferAdapter["StreamingBufferDataSourceAdapter"]
-        AviatorJIT2["AviatorScript Engine (메모리 버퍼 연계 평가)"]
+        AviatorJIT2["AviatorScript Engine (보안 샌드박스 활성화)"]
 
         ClientReq --> Controller1
+        Controller1 --> SecCheck2
+        SecCheck2 --> Service
         ClientReq ==>|센서 카탈로그 & 시계열 스트림 조회| Controller2
         Controller2 --> Catalog
-        Controller1 --> Service
         Service --> AdapterLayer
         AdapterLayer --> QuestDBAdapter & MockAdapter & RDBMSAdapter & BufferAdapter
         MockAdapter --> Catalog
@@ -88,7 +93,7 @@ flowchart TD
 ```mermaid
 flowchart BT
     formulaCore["formula-core<br/>(순수 도메인 모델)"]
-    formulaEngine["formula-engine<br/>(AviatorScript 수식 평가 엔진)"]
+    formulaEngine["formula-engine<br/>(AviatorScript 엔진 & 보안 샌드박스)"]
     formulaApi["formula-api<br/>(Spring Boot REST 서비스 & 어댑터)"]
     formulaFlink["formula-flink<br/>(Flink 스트리밍 잡 & ILP 싱크)"]
     formulaUi["formula-ui<br/>(Vue 3 + Vuetify 4 프론트엔드 UI)"]
@@ -105,11 +110,11 @@ flowchart BT
 
 | 모듈명 | 유형 | 주요 기술 | 책임 및 기능 |
 | :--- | :--- | :--- | :--- |
-| **`formula-core`** | Java Library | Lombok | 외부 프레임워크 의존성이 없는 순수 도메인 모델 (`SensorData`, `DynamicRule`) 정의 |
-| **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일 및 바이트코드 캐싱, 커스텀 윈도우 함수 (`window_avg`, `window_max`) 바인딩 |
-| **`formula-api`** | Spring Boot Application | Spring Boot 3.5, Spring Data JPA, PostgreSQL Wire | 온디맨드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 센서 카탈로그 API (`/api/v1/sensors`, Single Source of Truth), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
-| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector | 분산 스트리밍 평가 파이프라인, Broadcast State 패턴 기반 룰 전파, QuestDB ILP 비동기 적재 |
-| **`formula-ui`** | Frontend SPA | Vite, Vue 3, Vuetify 4, ECharts, Pinia, pnpm | 온디맨드 수식 작성/저장, 합성 수식(수식 간 호출 DAG), `formula-api` Mock DataSource 연동 100개 센서 1초 간격 시뮬레이션 및 시계열 시각화 |
+| **`formula-core`** | Java Library | Java 25, Lombok | 외부 프레임워크 의존성이 없는 순수 도메인 모델 (`SensorData`, `DynamicRule`) 정의 |
+| **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일, 런타임 보안 샌드박스(`ExpressionValidator`, 클래스 차단), 커스텀 윈도우 함수 (`window_avg`, `window_max`) |
+| **`formula-api`** | Spring Boot App | Spring Boot 3.5.16, Spring Data JPA, QuestDB Client 1.3.9 | 온디맨드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 100개 센서 카탈로그 API (`/api/v1/sensors`, Single Source of Truth), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
+| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector 3.3.0 | 분산 스트리밍 평가 파이프라인, Broadcast State 패턴 기반 룰 전파, RocksDB State TTL 메모리 관리, QuestDB ILP 비동기 적재 |
+| **`formula-ui`** | Frontend SPA | Vite 8, Vue 3.5, Vuetify 4.2, ECharts 6.1, Pinia, pnpm | 온디맨드 수식 작성/저장, 합성 수식 DAG 위상 정렬 분석, `CircularBuffer` 기반 초고속 시뮬레이션(86,400초 연산 ~500ms), 백엔드 연동 100개 센서 시계열 시각화 |
 
 ---
 
@@ -118,14 +123,32 @@ flowchart BT
 | 구분 | 기술 / 라이브러리 | 버전 | 설명 |
 | :--- | :--- | :--- | :--- |
 | **Language** | Java (OpenJDK) | **25** (LTS) | 최신 가상 스레드 및 메모리 모델 지원 |
-| **Build Tool** | Gradle | **9.8.0** | Version Catalog (`libs.versions.toml`) 기반 멀티 모듈 관리 |
+| **Build Tool** | Gradle | **9.8.0** | Version Catalog (`libs.versions.toml`) 기반 멀티 모듈 빌드 |
 | **Framework** | Spring Boot | **3.5.16** | REST API, Spring Data JPA, 스케줄링 관리 |
-| **Stream Engine** | Apache Flink | **1.19.3** | 분산 스트리밍 처리, RocksDB 상태 백엔드 |
-| **TSDB** | QuestDB | **10.0.1** | ILP/QWP 초고속 적재 (Zero-GC), PGWire SQL 및 `SAMPLE BY` 다운샘플링 |
-| **Rule Engine** | AviatorScript | **5.9.0** | `io.github.aviatorscript:aviator`, 바이트코드 컴파일 캐싱 |
+| **Stream Engine** | Apache Flink | **1.19.3** | 분산 스트리밍 처리, RocksDB 상태 백엔드 (`StateBackendOptions`) |
+| **TSDB** | QuestDB | **10.0.1** | ILP/QWP 초고속 적재 (Zero-GC, `questdb-client:1.3.9`), PGWire SQL 및 `SAMPLE BY` 다운샘플링 |
+| **Rule Engine** | AviatorScript | **5.9.0** | `io.github.aviatorscript:aviator`, 바이트코드 컴파일 캐싱 및 보안 샌드박스 |
 | **Message Broker**| Apache Kafka | **3.9.2** | 센서 데이터 및 룰 배포 큐 |
-| **Frontend** | Vue 3 + Vuetify 4 | **3.5** / **4.2** | TypeScript, Composition API, ECharts 6.1, Pinia, Vite 8, pnpm |
-| **Testing** | JUnit 5, Mockito, Testcontainers, Vitest | - | 단위/통합 테스트 자동화 |
+| **Frontend** | Vue 3 + Vuetify 4 | **3.5** / **4.2** | TypeScript, Composition API, ECharts 6.1, Pinia 4, Vite 8, pnpm 12 |
+| **Testing** | JUnit 5, Mockito, Testcontainers, Vitest | - | 단위/통합 테스트 자동화 및 프론트엔드 성능 벤치마크 |
+
+---
+
+## 🔒 보안 및 고성능 엔지니어링 특징
+
+### 1. 3중 수식 보안 샌드박스 (Expression Sandbox)
+- **`ExpressionValidator`**: 500자 길이 제한, 허용 연산자 화이트리스트 검증, 단독 대입문(`=`) 원천 차단, 시스템/리플렉션/위험 함수 블랙리스트 차단(`Class`, `System`, `Runtime`, `Process`, `exec`, `eval`, `load`, `import`, `new` 등).
+- **AviatorEvaluator 클래스 격리**: `ALLOWED_CLASS_SET = emptySet()`으로 임의 자바 클래스 참조 원천 봉쇄, `NewInstance`/`StaticMethods`/`Module` 등 위험 기능 비활성화.
+- **DoS 방어**: `MAX_LOOP_COUNT = 1000`, `EVAL_TIMEOUT_MS = 5000L` 설정으로 무한 루프 공격 방어.
+
+### 2. SQL / DDL 인젝션 방어
+- `SAMPLE BY` 화이트리스트 정규식 검증 (`^[1-9][0-9]*(?:s|m|h|d|w|ms|M|y)$`).
+- QuestDB `DROP PARTITION` 대상 명칭 날짜 정규식 검증 (`^\d{4}-\d{2}-\d{2}$`).
+
+### 3. 고성능 메모리 및 루프 최적화
+- **백엔드 온디맨드 루프 최적화**: `LinkedList` 기반 슬라이딩 윈도우 $O(1)$ 이력 관리, 루프 외부 `env` 맵 사전 할당 및 재사용을 통한 Zero-Allocation GC 최소화.
+- **프론트엔드 `CircularBuffer`**: 브라우저 `Array.shift()` 오버헤드를 제거한 `Float64Array` 링 버퍼 구현.
+- **바인딩 사전 추출 (Pre-extraction)**: 시뮬레이션 루프 진입 전 센서/수식 배열 및 버퍼 포인터를 사전 캐싱하여 루프 내 `Map.get()` 룩업 완전 제거 (86,400초 데이터 5회 평균 ~520ms).
 
 ---
 
@@ -194,7 +217,7 @@ gradle :formula-api:bootRun --args="--evaluation.datasource.type=MOCK"
 cd formula-ui
 pnpm install
 pnpm dev
-# 브라우저에서 http://localhost:3000 접속 시 formula-api: Online 뱃지 활성화
+# 브라우저에서 http://localhost:3000 접속 시 formula-api: Online 배지 활성화
 ```
 
 상세한 UI 사용법, DAG 수식 작성법 및 설정은 [FRONTEND_UI_GUIDE.md](docs/FRONTEND_UI_GUIDE.md)를 참고하세요.
@@ -255,7 +278,7 @@ Content-Type: application/json
 | `expression` | 필수 | - | AviatorScript 수식 (예: `value * 1.8 + 32`, `value > 50 ? value * 1.1 : value`) |
 | `startTime` | 필수 | - | 조회 시작 일시 (ISO-8601 형식) |
 | `endTime` | 필수 | - | 조회 종료 일시 (ISO-8601 형식) |
-| `sampleBy` | 선택 | `1m` | QuestDB 다운샘플링 인터벌 (`1s`, `10s`, `1m`, `1h` 등) |
+| `sampleBy` | 선택 | `1m` | QuestDB 다운샘플링 인터벌 (`1s`, `10s`, `1m`, `1h` 등 정규식 화이트리스트 검증) |
 
 #### 응답 예시 (HTTP 200)
 ```json
@@ -297,5 +320,6 @@ Content-Type: application/json
 ---
 
 ## 📚 관련 상세 문서
+* [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](ARCHITECTURE_GUIDE.md)
 * [Formula UI 아키텍처 및 사용자 가이드 (Frontend UI Guide)](docs/FRONTEND_UI_GUIDE.md)
-* [스트리밍 평가 룰 전파 아키텍처 가이드](docs/STREAMING_EVALUATOR_GUIDE.md)
+* [스트리밍 평가 룰 전파 아키텍처 가이드 (Streaming Evaluator Guide)](docs/STREAMING_EVALUATOR_GUIDE.md)

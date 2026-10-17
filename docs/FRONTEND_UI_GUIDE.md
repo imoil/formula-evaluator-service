@@ -42,7 +42,7 @@ flowchart LR
         
         MockAdapter["MockNormalDistributionDataSourceAdapter (100개 센서 N(μ, σ²) 시계열 제공)"]
         QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 다운샘플링)"]
-        QuestDB[("QuestDB 9.3.4 (ILP / PGWire)")]
+        QuestDB[("QuestDB 10.0.1 (ILP / PGWire)")]
 
         Controller1 & Controller2 --> Service
         Controller2 --> Catalog
@@ -99,6 +99,7 @@ formula-evaluator-service/
 │   │   │   ├── FormulaSimulation.vue    # 1시간 시계열 결과 시뮬레이션 및 ECharts 차트
 │   │   │   └── SensorDataExplorer.vue   # 백엔드 연동 100개 센서 카탈로그 및 파형 탐색기
 │   │   ├── services/
+│   │   │   ├── circularBuffer.ts        # [성능] Float64Array 기반 O(1) 슬라이딩 윈도우 링 버퍼
 │   │   │   ├── formulaEngine.ts         # 토큰 파서, DAG 위상 정렬, 윈도우 함수 JIT 엔진
 │   │   │   ├── apiClient.ts             # Spring Boot REST API 연동 클라이언트
 │   │   │   └── sensorDataGenerator.ts   # [오프라인/테스트 Fallback] 로컬 시계열 생성기
@@ -108,7 +109,9 @@ formula-evaluator-service/
 │   │   │   └── simulationStore.ts       # 백엔드 센서 스트림 기반 시뮬레이션 조정자
 │   │   ├── test/
 │   │   │   ├── formulaEngine.test.ts    # 수식 엔진 및 DAG 위상 정렬 Vitest 단위 테스트
-│   │   │   └── formulaStore.test.ts     # Pinia 수식 스토어 CRUD Vitest 단위 테스트
+│   │   │   ├── circularBuffer.test.ts   # CircularBuffer 단위 테스트
+│   │   │   ├── formulaStore.test.ts     # Pinia 수식 스토어 CRUD Vitest 단위 테스트
+│   │   │   └── benchmark.test.ts        # [성능] 86,400건 시계열 시뮬레이션 성능 벤치마크 테스트
 │   │   ├── App.vue                      # 네비게이션 툴바, 탭 라우팅, 서버 온라인 상태 뱃지
 │   │   └── main.ts                      # Vuetify 4 및 MDI Iconset 등록
 │   ├── vite.config.ts                   # Vite 8 번들러 및 /api 백엔드 리버스 프록시
@@ -376,6 +379,27 @@ sequenceDiagram
     ECharts-->>User: 1시간 시계열 인터랙티브 차트 및 KPI 카드 렌더링 완료
     end
 ```
+
+
+---
+
+### 3.5 초고속 시뮬레이션 최적화 엔지니어링 (High-Performance Engineering)
+
+`formula-ui`는 1시간(3,600건)뿐만 아니라 최대 24시간(86,400건) 이상의 대규모 시계열 데이터와 복잡한 다단 합성 수식 DAG를 브라우저 내에서 지연 없이 시뮬레이션하기 위해 다음과 같은 4중 최적화를 적용하였습니다.
+
+#### ① Float64Array 기반 `CircularBuffer` (Zero-Shift O(1) 링 버퍼)
+* **기존 Array.shift()의 한계**: 자바스크립트 기본 `Array`에서 슬라이딩 윈도우 크기를 유지하기 위해 `shift()`를 호출하면 앞단 원소 제거 후 전체 배열 요소를 재배치하므로 매초 $O(N)$의 메모리 복사와 GC 오버헤드가 발생합니다.
+* **해결**: [`circularBuffer.ts`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-ui/src/services/circularBuffer.ts)에서 고정 크기 `Float64Array`와 모듈로 연산(`(head + 1) % capacity`)을 사용하는 링 버퍼를 구현하여 `push()`, `avg()`, `max()`, `min()` 연산을 $O(1)$로 처리합니다.
+
+#### ② 시뮬레이션 루프 바인딩 사전 추출 (Pre-Extraction Optimization)
+* **반복 룩업 제거**: 3,600~86,400회의 타임스텝 루프 내부에서 `Map.get(sensorId)`, `compiledFns.get(formulaId)`, `historyBuffers.get(...)`를 매초 반복 호출하면 상당한 해시 룩업 비용이 듭니다.
+* **해결**: 루프 진입 전 `sensorIdsList`, `sensorSeriesList`, `sensorBufferList`, `formulaFnList`, `formulaBufferList` 배열을 단 한 번만 생성하여 사전 바인딩하고, 루프 내부에서는 기본 정수 인덱스(`for (let i = 0; i < len; i++)`)로 초고속 접근합니다.
+
+#### ③ 정규식 모듈 스코프 프리컴파일
+* `formulaEngine.ts` 내의 수식 변환 정규식(`RE_WINDOW_AVG`, `RE_WINDOW_MAX`, `RE_ABS`, `RE_SQRT` 등)을 모듈 전역 스코프에 미리 컴파일하여 `createEvalFunction()` 호출 시 정규식 재파싱 오버헤드를 제거하였습니다.
+
+#### ④ 성능 벤치마크 검증 (`benchmark.test.ts`)
+* 5개 수식으로 구성된 다단 합성 DAG(F1 → F2 → F3 → F4 → F5) 및 윈도우 집계(`window_avg(10)`, `window_max(5)`) 환경에서 **86,400초(1일) 데이터 포인트에 대한 5회 반복 시뮬레이션 평균 실행 시간이 약 520ms**로 측정되었습니다.
 
 ---
 
