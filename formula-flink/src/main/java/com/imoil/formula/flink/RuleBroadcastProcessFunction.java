@@ -85,13 +85,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         // 1. 적용할 룰 조회
         DynamicRule rule = ctx.getBroadcastState(ruleStateDescriptor).get(value.getSensorId());
         
-        boolean usesWindow = false;
-        if (rule != null && rule.getExpression() != null) {
-            String expr = rule.getExpression();
-            // "window_" 혹은 "previous_" 등 히스토리 데이터가 필요한 함수를 동적으로 확인
-            usesWindow = expr.contains("window_") || expr.contains("previous_");
-            // 추가적인 히스토리 요구 함수는 여기에 조건을 확장하여 사용할 수 있습니다.
-        }
+        boolean usesWindow = rule != null && rule.isUsesWindow();
         
         List<Double> history = new ArrayList<>();
         boolean hasInaccurateData = false;
@@ -149,6 +143,12 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
 
     @Override
     public void processBroadcastElement(DynamicRule rule, Context ctx, Collector<SensorData> out) throws Exception {
+        // 룰 수식에 히스토리 데이터(윈도우)가 필요한지 미리 계산하여 캐싱 (processElement 부하 감소)
+        if (rule != null && rule.getExpression() != null) {
+            String expr = rule.getExpression();
+            rule.setUsesWindow(expr.contains("window_") || expr.contains("previous_"));
+        }
+
         BroadcastState<String, DynamicRule> broadcastState = ctx.getBroadcastState(ruleStateDescriptor);
         broadcastState.put(rule.getTargetSensorId(), rule);
     }
