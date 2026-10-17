@@ -108,4 +108,76 @@ class RuleBroadcastProcessFunctionTest {
 
         harness.close();
     }
+
+    @Test
+    @DisplayName("복수 개의 동적 룰이 브로드캐스트로 일괄 유입될 때 각 센서별로 독립적으로 올바른 수식이 적용된다")
+    void testBulkDynamicRuleBroadcastAndEvaluation() throws Exception {
+        RuleBroadcastProcessFunction function = new RuleBroadcastProcessFunction(30);
+
+        var harness = ProcessFunctionTestHarnesses.forKeyedBroadcastProcessFunction(
+                function,
+                SensorData::getSensorId,
+                BasicTypeInfo.STRING_TYPE_INFO,
+                RuleBroadcastProcessFunction.RULE_STATE_DESCRIPTOR
+        );
+
+        harness.open();
+
+        // 1. Bulk sync: 2개의 룰 브로드캐스트 유입 (10001: 화씨 변환, 10002: 압력 보정)
+        DynamicRule rule1 = DynamicRule.builder()
+                .ruleId("rule_10001")
+                .targetSensorId("SN_10001")
+                .expression("SN_10001 * 1.8 + 32.0")
+                .derivedSensorId("10201")
+                .usesWindow(false)
+                .build();
+
+        DynamicRule rule2 = DynamicRule.builder()
+                .ruleId("rule_10002")
+                .targetSensorId("10002")
+                .expression("value * 1.25")
+                .derivedSensorId("10202")
+                .usesWindow(false)
+                .build();
+
+        harness.processBroadcastElement(rule1, 1000L);
+        harness.processBroadcastElement(rule2, 1000L);
+
+        // 2. 센서 10001 데이터 유입
+        SensorData data1 = SensorData.builder()
+                .sensorId("10001")
+                .timestamp(1010L)
+                .value(25.0) // 25.0 * 1.8 + 32.0 = 77.0
+                .state(0)
+                .build();
+        harness.processElement(data1, 1010L);
+
+        // 3. 센서 10002 데이터 유입
+        SensorData data2 = SensorData.builder()
+                .sensorId("10002")
+                .timestamp(1020L)
+                .value(40.0) // 40.0 * 1.25 = 50.0
+                .state(0)
+                .build();
+        harness.processElement(data2, 1020L);
+
+        List<SensorData> output = harness.extractOutputValues();
+        assertThat(output).hasSize(4);
+
+        SensorData derived1 = output.get(0);
+        assertThat(derived1.getSensorId()).isEqualTo("10201");
+        assertThat(derived1.getValue()).isEqualTo(77.0);
+
+        SensorData raw1 = output.get(1);
+        assertThat(raw1.getSensorId()).isEqualTo("10001");
+
+        SensorData derived2 = output.get(2);
+        assertThat(derived2.getSensorId()).isEqualTo("10202");
+        assertThat(derived2.getValue()).isEqualTo(50.0);
+
+        SensorData raw2 = output.get(3);
+        assertThat(raw2.getSensorId()).isEqualTo("10002");
+
+        harness.close();
+    }
 }

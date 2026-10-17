@@ -40,6 +40,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
     
     // Key-value List State (RocksDB Backend 에 안전하게 저장됨)
     private transient ListState<Double> windowHistoryState;
+    // 룰 최초 등록/변경 시점 기록 State (부정확 데이터 플래그 판단용)
     private transient ValueState<Long> ruleStartTimeState;
     private transient RuleEngineService ruleEngineService;
     
@@ -134,6 +135,14 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
             env.put("value", value.getValue());
             env.put("state", value.getState());
             env.put("window_data", history); // 윈도우 커스텀 함수에 제공될 데이터
+            if (value.getSensorId() != null) {
+                env.put(value.getSensorId(), value.getValue());
+                if (value.getSensorId().startsWith("SN_")) {
+                    env.put(value.getSensorId().substring(3), value.getValue());
+                } else if (value.getSensorId().matches("\\d+")) {
+                    env.put("SN_" + value.getSensorId(), value.getValue());
+                }
+            }
             
             try {
                 double evaluatedResult = ruleEngineService.evaluate(rule.getExpression(), env);
