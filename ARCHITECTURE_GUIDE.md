@@ -70,7 +70,7 @@ flowchart TD
         SecFilter1 --> AviatorJIT1
         KeyedStream & BroadcastState --> AviatorJIT1
         AviatorJIT1 <--> RocksDBState
-        AviatorJIT1 -->|파생 수식 센서 데이터 (derivedSensorId)| ILPSink
+        AviatorJIT1 -->|"파생 수식 센서 데이터 (derivedSensorId)"| ILPSink
     end
 
     subgraph StorageLayer["시계열 데이터 저장소 (TSDB)"]
@@ -121,9 +121,9 @@ flowchart TD
         ClientEngine --> Visualizer
     end
 
-    RegStore ==>|센서 등록/수정/삭제/동기화 REST API| RegistryCtrl
-    PiniaStores ==>|센서 카탈로그 & 시계열 조회| SensorCtrl
-    UIPath -.->|온디멘드 평가 검증 (/api/v1/evaluate)| EvalCtrl
+    RegStore ==>|"센서 등록/수정/삭제/동기화 REST API"| RegistryCtrl
+    PiniaStores ==>|"센서 카탈로그 & 시계열 조회"| SensorCtrl
+    UIPath -.->|"온디멘드 평가 검증 (/api/v1/evaluate)"| EvalCtrl
 ```
 
 ---

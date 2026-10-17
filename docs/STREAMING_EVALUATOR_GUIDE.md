@@ -72,7 +72,7 @@ flowchart TD
     RuleMap -.-> Validator --> BroadcastState
     KeyBy -.-> StateMgmt & AviatorJIT
     AviatorJIT -.-> MetricsCollector
-    ProcessFunction -->|원본(10001) & 파생 수식 센서(10201)| SinkLayer
+    ProcessFunction -->|"원본(10001) & 파생 수식 센서(10201)"| SinkLayer
     SinkLayer --> Storage
 ```
 

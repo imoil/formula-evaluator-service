@@ -67,7 +67,7 @@ flowchart TD
         SecCheck1 --> AviatorJIT1
         KeyedStream & BroadcastState --> AviatorJIT1
         AviatorJIT1 <--> RocksDBState
-        AviatorJIT1 -->|파생 데이터 방출 (derivedSensorId)| ILPSink
+        AviatorJIT1 -->|"파생 데이터 방출 (derivedSensorId)"| ILPSink
     end
 
     subgraph StorageLayer["시계열 데이터 저장소"]
@@ -114,9 +114,9 @@ flowchart TD
         UI_Sim & UI_Editor --> PiniaStores
     end
 
-    PiniaStores ==>|센서 CRUD 및 일괄 동기화 REST API| RegistryCtrl
-    PiniaStores ==>|센서 카탈로그 & 시계열 스트림 조회| Controller2
-    PiniaStores -.->|서버 수식 평가 검증| Controller1
+    PiniaStores ==>|"센서 CRUD 및 일괄 동기화 REST API"| RegistryCtrl
+    PiniaStores ==>|"센서 카탈로그 & 시계열 스트림 조회"| Controller2
+    PiniaStores -.->|"서버 수식 평가 검증"| Controller1
 ```
 
 ---
