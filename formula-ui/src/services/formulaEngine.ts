@@ -328,6 +328,17 @@ export function simulateFormula(
     historyBuffers.set(id, [])
   }
 
+  // Pre-extract array bindings outside the time-series loop to eliminate repeated Map lookups
+  const sensorIdsList = Array.from(requiredSensors)
+  const sensorSeriesList = sensorIdsList.map((sId) => sensorDataMap.get(sId))
+  const sensorBufferList = sensorIdsList.map((sId) => historyBuffers.get(sId)!)
+
+  const primarySensorBuffer = historyBuffers.get(primarySensorId) || []
+
+  const formulaIdsList = order
+  const formulaFnList = order.map((formulaId) => compiledFns.get(formulaId))
+  const formulaBufferList = order.map((formulaId) => historyBuffers.get(formulaId)!)
+
   const resultPoints: SimulationResultPoint[] = []
   let totalEvaluated = 0
   let nanCount = 0
@@ -346,14 +357,15 @@ export function simulateFormula(
     // Construct evaluation context for this time step
     const ctx: Record<string, any> = {}
 
-    // Inject sensor telemetry values for current second
-    for (const sId of requiredSensors) {
-      const series = sensorDataMap.get(sId)
+    // Inject sensor telemetry values for current second using pre-extracted bindings
+    for (let i = 0; i < sensorIdsList.length; i++) {
+      const sId = sensorIdsList[i]
+      const series = sensorSeriesList[i]
       const val = series && series[t] ? series[t].value : 0
       ctx[sId] = val
 
       // Update sliding window buffer
-      const buf = historyBuffers.get(sId)!
+      const buf = sensorBufferList[i]
       buf.push(val)
       if (buf.length > 100) buf.shift()
     }
@@ -363,32 +375,30 @@ export function simulateFormula(
     const primarySensorVal = primaryPt ? primaryPt.value : 0
     ctx.value = primarySensorVal
 
-    // Window aggregation helpers
+    // Window aggregation helpers using pre-extracted primarySensorBuffer
     ctx.__window_avg = (windowSize: number) => {
-      const buf = historyBuffers.get(primarySensorId) || []
-      const slice = buf.slice(-Math.min(buf.length, windowSize))
+      const slice = primarySensorBuffer.slice(-Math.min(primarySensorBuffer.length, windowSize))
       if (slice.length === 0) return 0
       const sum = slice.reduce((acc, v) => acc + v, 0)
       return sum / slice.length
     }
 
     ctx.__window_max = (windowSize: number) => {
-      const buf = historyBuffers.get(primarySensorId) || []
-      const slice = buf.slice(-Math.min(buf.length, windowSize))
+      const slice = primarySensorBuffer.slice(-Math.min(primarySensorBuffer.length, windowSize))
       return slice.length > 0 ? Math.max(...slice) : 0
     }
 
     ctx.__window_min = (windowSize: number) => {
-      const buf = historyBuffers.get(primarySensorId) || []
-      const slice = buf.slice(-Math.min(buf.length, windowSize))
+      const slice = primarySensorBuffer.slice(-Math.min(primarySensorBuffer.length, windowSize))
       return slice.length > 0 ? Math.min(...slice) : 0
     }
 
-    // Evaluate formulas in topological order
+    // Evaluate formulas in topological order using pre-extracted bindings
     const intermediateValues: Record<string, number> = {}
 
-    for (const formulaId of order) {
-      const fn = compiledFns.get(formulaId)
+    for (let i = 0; i < formulaIdsList.length; i++) {
+      const formulaId = formulaIdsList[i]
+      const fn = formulaFnList[i]
       if (fn) {
         try {
           const res = fn(ctx)
@@ -397,7 +407,7 @@ export function simulateFormula(
           intermediateValues[formulaId] = numRes
 
           // Update formula's own history buffer
-          const fBuf = historyBuffers.get(formulaId)!
+          const fBuf = formulaBufferList[i]
           fBuf.push(numRes)
           if (fBuf.length > 100) fBuf.shift()
         } catch {
