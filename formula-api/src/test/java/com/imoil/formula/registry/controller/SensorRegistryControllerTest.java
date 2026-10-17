@@ -13,10 +13,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.hamcrest.Matchers.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -34,6 +40,9 @@ class SensorRegistryControllerTest {
     @Autowired
     private SensorRegistryService registryService;
 
+    @MockitoBean
+    private KafkaTemplate<String, String> kafkaTemplate;
+
     @Test
     @DisplayName("물리 IoT 센서 등록 시 Oracle 시퀀스 기반 고유 일련번호가 자동 채번된다")
     void testCreatePhysicalSensor() throws Exception {
@@ -49,7 +58,8 @@ class SensorRegistryControllerTest {
 
         mockMvc.perform(post("/api/v1/registry/sensors")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(request))
+                )
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.serialNumber", notNullValue()))
                 .andExpect(jsonPath("$.sensorCode", containsString("PHY-DEVICE001-S000")))
@@ -92,7 +102,7 @@ class SensorRegistryControllerTest {
     }
 
     @Test
-    @DisplayName("수식 센서 등록 시 일관된 일련번호 체계가 부여된다")
+    @DisplayName("수식 센서 등록 시 일관된 일련번호 체계가 부여되며 카프카로 동적 룰이 발행된다")
     void testCreateFormulaSensor() throws Exception {
         CreateSensorRequest request = CreateSensorRequest.builder()
                 .sensorName("Calculated Cooling Efficiency")
@@ -110,6 +120,8 @@ class SensorRegistryControllerTest {
                 .andExpect(jsonPath("$.serialNumber", notNullValue()))
                 .andExpect(jsonPath("$.sensorType", is("FORMULA")))
                 .andExpect(jsonPath("$.formulaExpression", is("100 * (SN_10001 - SN_10002) / SN_10001")));
+
+        verify(kafkaTemplate, atLeastOnce()).send(eq("rule-data"), anyString(), anyString());
     }
 
     @Test
@@ -181,5 +193,29 @@ class SensorRegistryControllerTest {
         mockMvc.perform(get("/api/v1/registry/next-serial"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nextSerialNumber", notNullValue()));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/registry/sensors/rules/sync 호출 시 활성 수식 센서들을 Flink Kafka 토픽으로 일괄 동기화한다")
+    void testSyncRulesToFlink() throws Exception {
+        // 수식 센서 등록
+        CreateSensorRequest request = CreateSensorRequest.builder()
+                .sensorName("Formula Sensor For Sync")
+                .sensorType(SensorType.FORMULA)
+                .category("Efficiency")
+                .unit("%")
+                .formulaExpression("SN_10001 * 0.95")
+                .build();
+        registryService.createSensor(request);
+
+        mockMvc.perform(post("/api/v1/registry/sensors/rules/sync"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.syncedCount", greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.message", containsString("Successfully synchronized")));
+
+        // 별칭 엔드포인트(/rules/sync)도 정상 동작
+        mockMvc.perform(post("/api/v1/registry/rules/sync"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.syncedCount", greaterThanOrEqualTo(1)));
     }
 }

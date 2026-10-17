@@ -17,3 +17,8 @@ questdb:
 evaluation:
   datasource:
     type: MOCK
+
+formula:
+  rules:
+    topic: rule-data
+    sync-on-startup: false

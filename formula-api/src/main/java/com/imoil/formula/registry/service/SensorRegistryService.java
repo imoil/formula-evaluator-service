@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 /**
  * IoT 장치 센서와 수식 센서를 위한 통합 일련번호 관리 서비스.
  * Oracle 19c SENSOR_REGISTRY 테이블 및 시퀀스와 연동하고,
- * Flink 및 온디멘드 처리를 위한 SensorSerialResolver와 동기화합니다.
+ * Flink 및 온디맨드 처리를 위한 SensorSerialResolver 및 카프카 rule-data와 동기화합니다.
  */
 @Slf4j
 @Service
@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 public class SensorRegistryService {
 
     private final SensorRegistryRepository repository;
+    private final RulePublisherService rulePublisherService;
 
     private static final String[] CATEGORIES = {
             "Temperature", "Pressure", "Vibration", "Flow", "Electrical", "Mechanical", "Environmental"
@@ -150,6 +151,15 @@ public class SensorRegistryService {
                     saved.getDeviceId(), saved.getDeviceSensorIndex(), saved.getSerialNumber());
         }
 
+        // 수식 센서인 경우 실시간으로 Kafka rule-data 토픽으로 동적 룰 자동 발행
+        if (saved.getSensorType() == SensorType.FORMULA && saved.getStatus() == SensorStatus.ACTIVE) {
+            try {
+                rulePublisherService.publishFormulaSensor(saved);
+            } catch (Exception e) {
+                log.warn("새 수식 센서 #{} 동적 룰 카프카 발행 실패: {}", saved.getSerialNumber(), e.getMessage());
+            }
+        }
+
         return SensorRegistryDto.fromEntity(saved);
     }
 
@@ -182,6 +192,16 @@ public class SensorRegistryService {
 
         SensorRegistryEntity updated = repository.save(entity);
         log.info("센서 정보 수정 완료 - 일련번호: #{}", serialNumber);
+
+        // 수식 센서이고 활성 상태인 경우 Kafka rule-data 토픽으로 룰 갱신 발행
+        if (updated.getSensorType() == SensorType.FORMULA && updated.getStatus() == SensorStatus.ACTIVE) {
+            try {
+                rulePublisherService.publishFormulaSensor(updated);
+            } catch (Exception e) {
+                log.warn("수식 센서 #{} 갱신 룰 카프카 발행 실패: {}", serialNumber, e.getMessage());
+            }
+        }
+
         return SensorRegistryDto.fromEntity(updated);
     }
 
@@ -271,11 +291,10 @@ public class SensorRegistryService {
     }
 
     /**
-     * 다음 일련번호 프리뷰 (UI 안내용)
+     * 다음 일련번호 시퀀스 값 미리보기
      */
     @Transactional(readOnly = true)
     public Long getNextSerialNumberPreview() {
-        Long max = repository.findMaxSerialNumber();
-        return (max != null && max >= 10001) ? max + 1 : 10001L;
+        return repository.findMaxSerialNumber() + 1;
     }
 }

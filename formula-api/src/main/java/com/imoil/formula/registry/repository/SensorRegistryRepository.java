@@ -1,5 +1,6 @@
 package com.imoil.formula.registry.repository;
 
+import com.imoil.formula.registry.domain.SensorStatus;
 import com.imoil.formula.registry.domain.SensorType;
 import com.imoil.formula.registry.entity.SensorRegistryEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,6 +19,8 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistryEn
     Optional<SensorRegistryEntity> findBySensorCode(String sensorCode);
 
     List<SensorRegistryEntity> findBySensorType(SensorType sensorType);
+
+    List<SensorRegistryEntity> findBySensorTypeAndStatus(SensorType sensorType, SensorStatus status);
 
     List<SensorRegistryEntity> findByDeviceId(String deviceId);
 

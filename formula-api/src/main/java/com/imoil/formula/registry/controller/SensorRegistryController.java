@@ -5,6 +5,7 @@ import com.imoil.formula.registry.dto.CreateSensorRequest;
 import com.imoil.formula.registry.dto.DeviceSyncRequest;
 import com.imoil.formula.registry.dto.SensorRegistryDto;
 import com.imoil.formula.registry.dto.UpdateSensorRequest;
+import com.imoil.formula.registry.service.RulePublisherService;
 import com.imoil.formula.registry.service.SensorRegistryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +18,7 @@ import java.util.Map;
 
 /**
  * IoT 장치 및 수식 센서의 일련번호 및 메타데이터 관리를 위한 REST 컨트롤러.
- * Oracle 19c 데이터베이스 연동.
+ * Oracle 19c 데이터베이스 연동 및 Kafka Flink 동적 룰 동기화.
  */
 @Slf4j
 @RestController
@@ -27,6 +28,7 @@ import java.util.Map;
 public class SensorRegistryController {
 
     private final SensorRegistryService registryService;
+    private final RulePublisherService rulePublisherService;
 
     /**
      * 센서 목록 조회 (타입, 장치 ID, 키워드 검색 지원)
@@ -104,5 +106,19 @@ public class SensorRegistryController {
     public ResponseEntity<Map<String, Object>> getNextSerialPreview() {
         Long nextSerial = registryService.getNextSerialNumberPreview();
         return ResponseEntity.ok(Map.of("nextSerialNumber", nextSerial));
+    }
+
+    /**
+     * Oracle SENSOR_REGISTRY의 모든 활성 수식 센서를 Kafka rule-data 토픽으로 일괄 동기화하여
+     * Flink in-memory BroadcastState를 갱신합니다.
+     */
+    @PostMapping({"/sensors/rules/sync", "/rules/sync"})
+    public ResponseEntity<Map<String, Object>> syncRulesToFlink() {
+        int count = rulePublisherService.syncAllFormulaRules();
+        log.info("REST requested bulk rule sync completed: {} rules synchronized", count);
+        return ResponseEntity.ok(Map.of(
+                "syncedCount", count,
+                "message", String.format("Successfully synchronized %d rules to Kafka", count)
+        ));
     }
 }

@@ -16,7 +16,7 @@ spring:
     show-sql: false
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       group-id: formula-evaluator-group
       auto-offset-reset: earliest
@@ -35,3 +35,9 @@ questdb:
 evaluation:
   datasource:
     type: QUESTDB
+
+# 동적 룰 카프카 발행 및 Flink 브로드캐스트 동기화 설정
+formula:
+  rules:
+    topic: ${FORMULA_RULES_TOPIC:rule-data}
+    sync-on-startup: ${FORMULA_RULES_SYNC_ON_STARTUP:true}
