@@ -15,16 +15,17 @@ import java.util.regex.Pattern;
 @Repository
 @RequiredArgsConstructor
 public class QuestDBQueryRepository {
+
+    private static final Pattern SAMPLE_BY_PATTERN = Pattern.compile("^[1-9][0-9]*(?:s|m|h|d|w|ms|M|y)$");
     
     private final JdbcTemplate jdbcTemplate;
-    private static final Pattern SAMPLE_BY_PATTERN = Pattern.compile("^[0-9]+(s|m|h|d)$");
 
     /**
      * QuestDB 전용 시계열 집계 다운샘플링 확장 구문(SAMPLE BY)을 활용한 고속 추출 
      */
     public List<SensorData> fetchAggregatedData(String sensorId, String startTime, String endTime, String sampleBy) {
         // SQL 인젝션 방지: SAMPLE BY 구문은 PreparedStatement Bind가 불가능하므로 엄격한 화이트리스트 검증 수행
-        if (sampleBy == null || !sampleBy.matches("^[1-9][0-9]*(?:s|m|h|d|w|ms|M|y)$")) {
+        if (sampleBy == null || !SAMPLE_BY_PATTERN.matcher(sampleBy).matches()) {
             throw new IllegalArgumentException("Invalid sampleBy duration format: " + sampleBy);
         }
 
