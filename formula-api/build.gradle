@@ -14,6 +14,8 @@ dependencies {
     // Database & Time-Series
     implementation libs.questdb.client
     runtimeOnly libs.postgresql
+    implementation libs.oracle
+    testImplementation libs.h2
 
     // Testing
     testImplementation libs.testcontainers.junit.jupiter

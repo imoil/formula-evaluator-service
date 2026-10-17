@@ -2,21 +2,21 @@ package com.imoil.formula.service;
 
 import com.imoil.formula.datasource.TimeSeriesQueryCriteria;
 import com.imoil.formula.domain.SensorData;
+import com.imoil.formula.registry.entity.SensorRegistryEntity;
+import com.imoil.formula.registry.repository.SensorRegistryRepository;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 /**
- * 100개의 가상 센서 카탈로그 및 1시간(3,600초) 분량 정규분포 시계열 데이터 생성 서비스.
+ * 100개의 가상 센서 카탈로그 및 Oracle 19c SENSOR_REGISTRY 영속성 센서와 통합된
+ * 1시간(3,600초) 분량 정규분포 시계열 데이터 생성 서비스.
  * Controller와 Mock DataSource Adapter에서 공통으로 활용됩니다.
  */
 @Slf4j
@@ -34,15 +34,22 @@ public class MockSensorCatalogService {
         private String unit;
         private double mean;
         private double stdDev;
-        private double minClamp;
-        private double maxClamp;
+        private Double minClamp;
+        private Double maxClamp;
         private String description;
+        private Long serialNumber;
+        private String deviceId;
+        private Integer deviceSensorIndex;
+        private String sensorType; // PHYSICAL or FORMULA
     }
 
     private final Map<String, SensorMeta> sensorCatalog = new LinkedHashMap<>();
     private static final String[] CATEGORIES = {
             "Temperature", "Pressure", "Vibration", "Electrical", "Flow", "Mechanical", "Environmental"
     };
+
+    @Autowired(required = false)
+    private SensorRegistryRepository sensorRegistryRepository;
 
     public MockSensorCatalogService() {
         initSensorCatalog();
@@ -93,18 +100,106 @@ public class MockSensorCatalogService {
                     .unit(unit)
                     .mean(mean)
                     .stdDev(stdDev)
-                    .minClamp(Math.max(0, mean - stdDev * 4))
+                    .minClamp(Math.max(0.0, mean - stdDev * 4))
                     .maxClamp(mean + stdDev * 4)
                     .description("High-frequency IoT " + cat.toLowerCase() + " telemetry with N(" + mean + ", " + stdDev + "²)")
                     .build());
         }
     }
 
+    /**
+     * Oracle 19c SENSOR_REGISTRY의 영속성 센서들과 기본 가상 센서 카탈로그를 통합하여 반환
+     */
     public List<SensorMeta> getAllSensorCatalog() {
-        return new ArrayList<>(sensorCatalog.values());
+        List<SensorMeta> merged = new ArrayList<>();
+
+        // 1. Oracle 19c SENSOR_REGISTRY 센서들을 우선적으로 통합
+        if (sensorRegistryRepository != null) {
+            try {
+                List<SensorRegistryEntity> entities = sensorRegistryRepository.findAll();
+                for (SensorRegistryEntity entity : entities) {
+                    merged.add(convertEntityToMeta(entity));
+                }
+            } catch (Exception e) {
+                log.debug("Could not fetch entities from SensorRegistryRepository: {}", e.getMessage());
+            }
+        }
+
+        // 2. 기존 기본 카탈로그 병합 (아이디 중복 방지)
+        Set<String> existingIds = new HashSet<>();
+        for (SensorMeta m : merged) {
+            existingIds.add(m.getId());
+        }
+
+        for (SensorMeta m : sensorCatalog.values()) {
+            if (!existingIds.contains(m.getId())) {
+                merged.add(m);
+            }
+        }
+
+        return merged;
+    }
+
+    private SensorMeta convertEntityToMeta(SensorRegistryEntity entity) {
+        String id = entity.getSerialNumber() != null ? String.valueOf(entity.getSerialNumber()) : entity.getSensorCode();
+        String cat = entity.getCategory() != null ? entity.getCategory() : "General";
+        String unit = entity.getUnit() != null ? entity.getUnit() : "";
+
+        double mean = 50.0;
+        double stdDev = 2.5;
+        if ("Temperature".equalsIgnoreCase(cat)) { mean = 65.0; stdDev = 3.0; }
+        else if ("Pressure".equalsIgnoreCase(cat)) { mean = 100.0; stdDev = 4.0; }
+        else if ("Vibration".equalsIgnoreCase(cat)) { mean = 12.0; stdDev = 1.2; }
+        else if ("Flow".equalsIgnoreCase(cat)) { mean = 45.0; stdDev = 2.0; }
+        else if ("Electrical".equalsIgnoreCase(cat)) { mean = 220.0; stdDev = 5.0; }
+        else if ("Efficiency".equalsIgnoreCase(cat)) { mean = 88.0; stdDev = 2.0; }
+
+        return SensorMeta.builder()
+                .id(id)
+                .name(entity.getSensorName())
+                .category(cat)
+                .unit(unit)
+                .mean(mean)
+                .stdDev(stdDev)
+                .minClamp(Math.max(0.0, mean - stdDev * 4))
+                .maxClamp(mean + stdDev * 4)
+                .description(entity.getDescription() != null ? entity.getDescription() : "Oracle 19c Registered Sensor")
+                .serialNumber(entity.getSerialNumber())
+                .deviceId(entity.getDeviceId())
+                .deviceSensorIndex(entity.getDeviceSensorIndex())
+                .sensorType(entity.getSensorType() != null ? entity.getSensorType().name() : "PHYSICAL")
+                .build();
     }
 
     public SensorMeta getSensorMeta(String sensorId) {
+        // 1. Oracle 19c SENSOR_REGISTRY 조회 시도 (일련번호 또는 센서코드)
+        if (sensorRegistryRepository != null) {
+            try {
+                if (sensorId.startsWith("SN_")) {
+                    String rawNum = sensorId.substring(3);
+                    try {
+                        Long sn = Long.parseLong(rawNum);
+                        Optional<SensorRegistryEntity> ent = sensorRegistryRepository.findBySerialNumber(sn);
+                        if (ent.isPresent()) return convertEntityToMeta(ent.get());
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                try {
+                    Long sn = Long.parseLong(sensorId);
+                    Optional<SensorRegistryEntity> ent = sensorRegistryRepository.findBySerialNumber(sn);
+                    if (ent.isPresent()) return convertEntityToMeta(ent.get());
+                } catch (NumberFormatException ignored) {}
+
+                Optional<SensorRegistryEntity> byCode = sensorRegistryRepository.findBySensorCode(sensorId);
+                if (byCode.isPresent()) {
+                    return convertEntityToMeta(byCode.get());
+                }
+            } catch (Exception e) {
+                log.debug("Sensor lookup in registry failed: {}", e.getMessage());
+            }
+        }
+
+        // 2. 기본 mock 카탈로그 조회
         return sensorCatalog.getOrDefault(sensorId, SensorMeta.builder()
                 .id(sensorId)
                 .name("Generic Sensor " + sensorId)
@@ -138,20 +233,28 @@ public class MockSensorCatalogService {
             long timestampMs = baseTimeMs + (long) s * 1000L;
 
             subtleDrift += (rand.nextDouble() - 0.5) * (meta.getStdDev() * 0.05);
-            subtleDrift *= 0.995;
+            double base = meta.getMean() + subtleDrift;
+            double noise = rand.nextGaussian() * meta.getStdDev();
+            double val = base + noise;
 
-            double rawVal = (meta.getMean() + subtleDrift) + rand.nextGaussian() * meta.getStdDev();
-            if (rawVal < meta.getMinClamp()) rawVal = meta.getMinClamp();
-            if (rawVal > meta.getMaxClamp()) rawVal = meta.getMaxClamp();
+            if (meta.getMinClamp() != null && val < meta.getMinClamp()) {
+                val = meta.getMinClamp();
+            }
+            if (meta.getMaxClamp() != null && val > meta.getMaxClamp()) {
+                val = meta.getMaxClamp();
+            }
 
-            double roundedVal = Math.round(rawVal * 1000.0) / 1000.0;
+            val = Math.round(val * 100.0) / 100.0;
+
+            int state = (s > 1000 && s < 1015) ? 1 : 0;
+            boolean inaccurate = (s > 2500 && s < 2510);
 
             points.add(SensorData.builder()
                     .sensorId(sensorId)
                     .timestamp(timestampMs)
-                    .value(roundedVal)
-                    .state(0)
-                    .hasInaccurateData(false)
+                    .value(val)
+                    .state(state)
+                    .hasInaccurateData(inaccurate)
                     .build());
         }
 

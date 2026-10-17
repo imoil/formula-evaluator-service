@@ -6,6 +6,7 @@ flink = "1.19.3"
 flinkKafka = "3.3.0-1.19"
 aviator = "5.9.0"
 questdbClient = "1.3.9"
+ojdbc = "23.6.0.24.10"
 
 [libraries]
 # Spring Boot Starters
@@ -15,9 +16,11 @@ spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-star
 spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
 
-# Database / QuestDB
+# Database / QuestDB & Oracle 19c
 questdb-client = { module = "org.questdb:questdb-client", version.ref = "questdbClient" }
 postgresql = { module = "org.postgresql:postgresql" }
+oracle = { module = "com.oracle.database.jdbc:ojdbc11", version.ref = "ojdbc" }
+h2 = { module = "com.h2database:h2" }
 
 # Expression Engine
 aviator = { module = "io.github.aviatorscript:aviator", version.ref = "aviator" }

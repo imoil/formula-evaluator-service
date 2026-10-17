@@ -37,5 +37,21 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
+  # Oracle 19c Enterprise Database for Sensor Registry & Unique Serial Sequence
+  oracle19c:
+    image: container-registry.oracle.com/database/enterprise:19.3.0.0
+    container_name: formula-oracle19c
+    ports:
+      - "1521:1521"
+      - "5500:5500" # EM Express
+    environment:
+      - ORACLE_PWD=formula_password123!
+      - ORACLE_SID=ORCLCDB
+      - ORACLE_PDB=ORCLPDB1
+      - ORACLE_CHARACTERSET=AL32UTF8
+    volumes:
+      - oracle19c_data:/opt/oracle/oradata
+
 volumes:
   questdb_data:
+  oracle19c_data:
