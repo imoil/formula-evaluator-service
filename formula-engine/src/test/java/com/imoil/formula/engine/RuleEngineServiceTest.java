@@ -61,6 +61,19 @@ class RuleEngineServiceTest {
     }
 
     @Test
+    @DisplayName("윈도우 커스텀 함수(window_avg, window_max) 빈 환경(window_data 부재) 평가 테스트")
+    void testWindowFunctionsWithEmptyEnv() {
+        Map<String, Object> env = new HashMap<>();
+        // window_data is missing, which is handled as null
+
+        double avgResult = ruleEngineService.evaluate("window_avg(3)", env);
+        assertThat(avgResult).isEqualTo(0.0);
+
+        double maxResult = ruleEngineService.evaluate("window_max(3)", env);
+        assertThat(maxResult).isEqualTo(0.0);
+    }
+
+    @Test
     @DisplayName("null 또는 빈 문자열 표현식 입력 시 IllegalArgumentException 발생")
     void testInvalidExpressionInputs() {
         Map<String, Object> env = new HashMap<>();
