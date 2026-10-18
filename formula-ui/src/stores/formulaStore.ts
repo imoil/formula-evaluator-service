@@ -4,6 +4,7 @@ import type { FormulaDefinition } from '../types/formula'
 import type { SensorRegistryItem } from '../types/sensorRegistry'
 import { analyzeFormulaDependencies, extractPrimarySensorId } from '../services/formulaEngine'
 import { useSensorRegistryStore } from './sensorRegistryStore'
+import { formatLocalDateTime } from '../utils/dateUtils'
 
 const LOCAL_STORAGE_KEY = 'formula_evaluator_definitions_v1'
 
@@ -82,8 +83,8 @@ export function mapRegistrySensorToFormula(sensor: SensorRegistryItem): FormulaD
     expression: sensor.formulaExpression || 'value * 1.0',
     description: sensor.description || `Oracle Registered Formula Sensor #${sensor.serialNumber}`,
     tags: ['Registry', `P_${sensor.serialNumber}`],
-    createdAt: sensor.createdAt || new Date().toISOString(),
-    updatedAt: sensor.updatedAt || new Date().toISOString(),
+    createdAt: sensor.createdAt || formatLocalDateTime(),
+    updatedAt: sensor.updatedAt || formatLocalDateTime(),
   }
 }
 
@@ -178,7 +179,7 @@ export const useFormulaStore = defineStore('formula', () => {
       throw new Error(`Formula with ID "${cleanId}" already exists.`)
     }
 
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 19)
+    const now = formatLocalDateTime()
     const newFormula: FormulaDefinition = {
       ...definition,
       id: cleanId,
@@ -199,7 +200,7 @@ export const useFormulaStore = defineStore('formula', () => {
       throw new Error(`Formula with ID "${id}" not found.`)
     }
 
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 19)
+    const now = formatLocalDateTime()
     if (index !== -1) {
       customFormulas.value[index] = {
         ...customFormulas.value[index],

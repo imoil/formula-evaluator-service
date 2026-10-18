@@ -5,6 +5,7 @@
  * This module serves solely as an offline fallback and testing utility when the backend is unreachable.
  */
 import type { SensorMetadata, SensorTimeSeries } from '../types/sensor'
+import { formatLocalTime } from '../utils/dateUtils'
 
 // Mulberry32 seeded pseudo-random generator for fast deterministic sampling
 function mulberry32(seed: number) {
@@ -111,8 +112,7 @@ export function generateSensorTimeSeries(sensorId: string, durationSeconds = 360
 
   for (let s = 0; s < durationSeconds; s++) {
     const timestampMs = baseTimeMs + s * 1000
-    const dateObj = new Date(timestampMs)
-    const timeStr = dateObj.toISOString().substring(11, 19) // HH:mm:ss
+    const timeStr = formatLocalTime(timestampMs)
 
     // Random walk drift component
     subtleDrift += (rand() - 0.5) * (metadata.stdDev * 0.05)

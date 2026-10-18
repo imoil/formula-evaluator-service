@@ -4,6 +4,7 @@ import type { SensorMetadata, SensorDataPoint } from '../types/sensor'
 import { fetchBackendSensors, fetchBackendSensorTimeSeries, fetchBackendLatestPoint } from '../services/apiClient'
 import { getAllSensors as getFallbackSensors, generateSensorTimeSeries as getFallbackTimeSeries } from '../services/sensorDataGenerator'
 import { useSensorRegistryStore } from './sensorRegistryStore'
+import { formatLocalTime } from '../utils/dateUtils'
 
 /**
  * Sensor Store (Unified Catalog)
@@ -144,9 +145,7 @@ export const useSensorStore = defineStore('sensor', () => {
       const rawPoints = await fetchBackendSensorTimeSeries(sensorId)
       const mapped: SensorDataPoint[] = rawPoints.map((p: any) => {
         const ms = typeof p.timestamp === 'number' ? p.timestamp : new Date(p.timestamp).getTime()
-        const timeStr = typeof p.timestamp === 'number'
-          ? new Date(p.timestamp).toISOString().substring(11, 19)
-          : String(p.timestamp)
+        const timeStr = formatLocalTime(p.timestamp)
 
         return {
           sensorId: p.sensorId,
@@ -189,9 +188,7 @@ export const useSensorStore = defineStore('sensor', () => {
         const pt = await fetchBackendLatestPoint(sensorId)
         if (pt) {
           const ms = typeof pt.timestamp === 'number' ? pt.timestamp : new Date(pt.timestamp).getTime()
-          const timeStr = typeof pt.timestamp === 'number'
-            ? new Date(pt.timestamp).toISOString().substring(11, 19)
-            : String(pt.timestamp).substring(11, 19)
+          const timeStr = formatLocalTime(pt.timestamp)
           const source = (pt as any).dataSource === 'QUESTDB' ? 'QUESTDB' : 'MOCK'
           sensorSourceMap.value[sensorId] = source
           return {

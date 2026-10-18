@@ -86,18 +86,19 @@ class SensorEmulatorVerificationTest {
         // ==========================================
         List<ProducerRecord<String, String>> sentRecords = mockProducer.history();
         log.info("[검증 2] 카프카 전송 메시지 건수: {}건", sentRecords.size());
-        assertThat(sentRecords.size()).isBetween(5, 6);
 
         long totalChangedSensors = emulator.getTotalChangedSensorsCount();
         log.info("[검증 2] 5초간 누적 변동 센서 수: {}건 (1000개 센서 기준)", totalChangedSensors);
-        assertThat(totalChangedSensors).isGreaterThan(100L); // 1000개 센서 중 1~10초 주기이므로 다수 변동 필수
+        assertThat(totalChangedSensors).isGreaterThan(100L);
+        // 모아서 전송하지 않고 센서 단위로 1초마다 개별 전송하므로 전송 메시지 수와 센서 수가 정확히 일치함
+        assertThat(sentRecords.size()).isEqualTo((int) totalChangedSensors);
 
         // ==========================================
         // 3. 카프카 메시지 헤더 및 바디 포맷 검증
         // ==========================================
         for (ProducerRecord<String, String> record : sentRecords) {
             assertThat(record.topic()).isEqualTo(topic);
-            assertThat(record.key()).isEqualTo(deviceId);
+            assertThat(record.key()).startsWith(deviceId + ":");
 
             // 헤더 검증
             Header deviceIdHeader = record.headers().lastHeader("deviceId");
@@ -109,11 +110,14 @@ class SensorEmulatorVerificationTest {
             long recordTime = Long.parseLong(new String(timestampHeader.value(), StandardCharsets.UTF_8));
             assertThat(recordTime).isGreaterThan(0L);
 
-            // 바디 검증 (JSON 배열)
+            Header sensorIndexHeader = record.headers().lastHeader("sensorIndex");
+            assertThat(sensorIndexHeader).isNotNull();
+
+            // 바디 검증 (모아서 전송하지 않는 단일 센서 JSON 객체)
             String bodyJson = record.value();
-            assertThat(bodyJson).startsWith("[").endsWith("]");
+            assertThat(bodyJson).startsWith("{").endsWith("}");
         }
-        log.info("[검증 3] 모든 카프카 레코드의 헤더(deviceId, timestamp) 및 바디(JSON Array) 포맷 일치 확인");
+        log.info("[검증 3] 모든 카프카 레코드의 헤더(deviceId, timestamp, sensorIndex) 및 바디(단일 SensorItem JSON) 포맷 일치 확인");
 
         // ==========================================
         // 4. Flink DeviceSensorRecordDeserializer 연동 검증

@@ -49,10 +49,12 @@ class SensorDeviceEmulatorTest {
 
         // 1000개 센서이고 주기가 1~10초이므로, 1초 이상 경과 시 변동된 센서 목록이 비어있지 않아야 함
         assertThat(tick2).isNotEmpty();
-        assertThat(mockProducer.history()).isNotEmpty();
+        // 모아서 전송하지 않고 각 센서마다 개별 레코드로 즉시 카프카 전송
+        assertThat(mockProducer.history()).hasSizeGreaterThanOrEqualTo(tick2.size());
 
         ProducerRecord<String, String> lastRecord = mockProducer.history().get(mockProducer.history().size() - 1);
-        assertThat(lastRecord.key()).isEqualTo("DEVICE-001");
+        assertThat(lastRecord.key()).startsWith("DEVICE-001:");
+        assertThat(lastRecord.value()).startsWith("{").endsWith("}");
         assertThat(lastRecord.value()).contains("sensorIndex");
 
         emulator.close();

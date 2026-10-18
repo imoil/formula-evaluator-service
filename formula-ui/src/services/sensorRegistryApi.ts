@@ -4,6 +4,7 @@ import type {
   UpdateSensorPayload,
   DeviceSyncPayload,
 } from '../types/sensorRegistry';
+import { formatLocalDateTime } from '../utils/dateUtils';
 
 const API_BASE_URL = 'http://localhost:8080/api/v1/registry';
 const STORAGE_KEY = 'formula_oracle_sensor_registry_v2';
@@ -147,7 +148,7 @@ export function getDefaultFormulaSeedPayloads(): CreateSensorPayload[] {
 }
 
 function getInitialSeedData(): SensorRegistryItem[] {
-  const now = new Date().toISOString();
+  const now = formatLocalDateTime();
   const allPayloads = [...getDefaultPhysicalSeedPayloads(), ...getDefaultFormulaSeedPayloads()];
   return allPayloads.map((payload, idx) => ({
     serialNumber: 10001 + idx,
@@ -259,8 +260,8 @@ class LocalStorageRegistryManager {
       formulaExpression: payload.sensorType === 'FORMULA' ? payload.formulaExpression : null,
       description: payload.description || '',
       status: payload.status || 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: formatLocalDateTime(),
+      updatedAt: formatLocalDateTime(),
     };
 
     sensors.push(item);
@@ -285,7 +286,7 @@ class LocalStorageRegistryManager {
         current.sensorType === 'FORMULA' ? (payload.formulaExpression ?? current.formulaExpression) : null,
       description: payload.description ?? current.description,
       status: payload.status ?? current.status,
-      updatedAt: new Date().toISOString(),
+      updatedAt: formatLocalDateTime(),
     };
 
     sensors[idx] = updated;
@@ -333,8 +334,8 @@ class LocalStorageRegistryManager {
         deviceSensorIndex: i,
         description: `Auto-synced from IoT Emulator device '${payload.deviceId}' with collision-free serial number.`,
         status: 'ACTIVE',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: formatLocalDateTime(),
+        updatedAt: formatLocalDateTime(),
       };
       toAdd.push(item);
       sensors.push(item);

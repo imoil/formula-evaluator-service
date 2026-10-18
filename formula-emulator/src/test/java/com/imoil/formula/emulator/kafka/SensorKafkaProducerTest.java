@@ -73,4 +73,53 @@ class SensorKafkaProducerTest {
 
         producer.close();
     }
+
+    @Test
+    @DisplayName("모아서 전송하지 않고 1초마다 개별 센서 레코드를 전송할 때 헤더와 단일 JSON 바디가 정확히 생성되어야 한다")
+    void testSendSensorAsyncFormat() throws Exception {
+        EmulatorConfig config = EmulatorConfig.builder()
+                .deviceId("DEVICE-TEST-100")
+                .kafkaTopic("sensor-data")
+                .build();
+
+        MockProducer<String, String> mockProducer = new MockProducer<>(
+                true,
+                new StringSerializer(),
+                new StringSerializer()
+        );
+
+        SensorKafkaProducer producer = new SensorKafkaProducer(config, mockProducer);
+
+        long timestamp = 1729150000000L;
+        SensorItem item = SensorItem.builder().sensorIndex(5).value(45.67).status("normal").build();
+
+        producer.sendSensorAsync("DEVICE-TEST-100", timestamp, item);
+
+        List<ProducerRecord<String, String>> history = mockProducer.history();
+        assertThat(history).hasSize(1);
+
+        ProducerRecord<String, String> record = history.get(0);
+        assertThat(record.topic()).isEqualTo("sensor-data");
+        assertThat(record.key()).isEqualTo("DEVICE-TEST-100:5");
+
+        Header deviceIdHeader = record.headers().lastHeader("deviceId");
+        assertThat(deviceIdHeader).isNotNull();
+        assertThat(new String(deviceIdHeader.value(), StandardCharsets.UTF_8)).isEqualTo("DEVICE-TEST-100");
+
+        Header sensorIndexHeader = record.headers().lastHeader("sensorIndex");
+        assertThat(sensorIndexHeader).isNotNull();
+        assertThat(new String(sensorIndexHeader.value(), StandardCharsets.UTF_8)).isEqualTo("5");
+
+        // 단일 SensorItem JSON 객체
+        String bodyJson = record.value();
+        assertThat(bodyJson).startsWith("{").endsWith("}");
+
+        ObjectMapper mapper = new ObjectMapper();
+        SensorItem deserialized = mapper.readValue(bodyJson, SensorItem.class);
+        assertThat(deserialized.getSensorIndex()).isEqualTo(5);
+        assertThat(deserialized.getValue()).isEqualTo(45.67);
+        assertThat(deserialized.getStatus()).isEqualTo("normal");
+
+        producer.close();
+    }
 }

@@ -13,26 +13,26 @@ flowchart TD
     %% 1단계: 에뮬레이터 센서 변동
     subgraph Step1["1단계: IoT 센서 에뮬레이션 (formula-emulator)"]
         direction TB
-        Sensors["1,000개 EmulatedSensor 풀<br/>(독립 타이머: 1s ~ 10s 주기)"]
+        Sensors["1,000개 EmulatedSensor 풀<br/>(1초 주기 실시간 측정값 생성)"]
         StateCheck{"상태 전이 판정<br/>(99% normal, 1% down)"}
         ValueDrift["정규분포 기반 랜덤 워크 측정값 갱신<br/>(소수점 3자리 반올림)"]
         TickScheduler["1초 주기 무지연 스케줄러<br/>(scheduleAtFixedRate & Jitter 측정)"]
-        BatchCollector["1초 동안 변동된 센서 목록 취합<br/>(List&lt;SensorItem&gt; 집계)"]
+        EmitIndividual["센서별 즉시 방출<br/>(모아서 전송하지 않고 1초마다 개별 발송)"]
 
         Sensors --> StateCheck
         StateCheck --> ValueDrift
-        ValueDrift --> BatchCollector
-        TickScheduler --> BatchCollector
+        ValueDrift --> EmitIndividual
+        TickScheduler --> EmitIndividual
     end
 
     %% 2단계: 카프카 전송
     subgraph Step2["2단계: 카프카 무지연 비동기 전송"]
         direction TB
-        KafkaHeaders["Kafka Record Headers<br/>- deviceId: 'DEVICE-001'<br/>- timestamp: 1729152000000"]
-        KafkaBody["Kafka Record Value (Body)<br/>JSON Array: [ {sensorIndex, value, status}, ... ]"]
+        KafkaHeaders["Kafka Record Headers<br/>- deviceId: 'DEVICE-001'<br/>- timestamp: Local Date Time Epoch Millis<br/>- sensorIndex: 0~999"]
+        KafkaBody["Kafka Record Value (Body)<br/>단일 센서 JSON: {sensorIndex, value, status}"]
         AsyncSend["KafkaProducer.send() (Non-blocking Async)<br/>- linger.ms = 0 (버퍼 대기 제거)<br/>- acks = 1 (초고속 승인)"]
 
-        BatchCollector --> KafkaHeaders & KafkaBody
+        EmitIndividual --> KafkaHeaders & KafkaBody
         KafkaHeaders & KafkaBody --> AsyncSend
     end
 
@@ -98,38 +98,35 @@ flowchart TD
 * **센서 풀(Sensor Pool) 관리**:
   - 기본 1,000개의 [`EmulatedSensor`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-emulator/src/main/java/com/imoil/formula/emulator/model/EmulatedSensor.java) 인스턴스를 메모리에 유지합니다.
   - 각 센서는 인덱스(0 ~ 999)에 따라 고유한 기준값(`baseMean`, 20.0 ~ 170.0)과 표준편차(`stdDev`)를 가지며, 온도·압력·전압 등 다양한 물리량 특성을 모의합니다.
-* **1초 ~ 10초 무작위 변동 주기**:
-  - 센서마다 다음 변동 시점(`nextChangeTimeMs`)을 `현재시각 + Random(1~10초)`로 개별 스케줄링합니다.
-  - 변동 시점이 도래하면 정규분포 랜덤 워크를 통해 값을 갱신하고, 설정된 확률(기본 1%)에 따라 `normal` $\leftrightarrow$ `down` 상태를 전이합니다.
+* **1초 주기 실시간 측정값 생성 및 Local Date Time 기준**:
+  - 실제 IoT 장치처럼 각 센서는 1초마다 실시간으로 새로운 측정값을 생성합니다.
+  - 정규분포 랜덤 워크를 통해 값을 갱신하고, 설정된 확률(기본 1%)에 따라 `normal` $\leftrightarrow$ `down` 상태를 전이합니다.
+  - 모든 측정 및 처리 시간은 로컬 일시(Local Date Time, 시스템 기본 타임존)를 기준으로 처리됩니다.
 * **1초 무지연 스케줄러 (`ScheduledExecutorService`)**:
   - `scheduleAtFixedRate`를 채택하여 앞선 작업의 소요 시간과 무관하게 정확히 1,000ms 간격으로 고정 실행됩니다.
   - 이전 틱 대비 지연 시간(Jitter)을 마이크로초 단위로 측정하여 100ms 초과 시 경고를 발생시킵니다.
 
 ---
 
-### 단계 2: 카프카 무지연 비동기 전송 (`SensorKafkaProducer`)
+### 단계 2: 카프카 무지연 비동기 개별 전송 (`SensorKafkaProducer`)
 * **Kafka Record 구조 규격**:
   - **Record Headers**:
     - `deviceId`: 장치 고유명 (예: `DEVICE-001`, UTF-8 byte)
-    - `timestamp`: 전송 기준 에포크 밀리초 (예: `1729152000000`, UTF-8 byte)
+    - `timestamp`: 전송 기준 로컬 일시 에포크 밀리초 (예: `1729152000000`, UTF-8 byte)
+    - `sensorIndex`: 센서 인덱스 (0 ~ 999, UTF-8 byte)
+  - **Record Key**:
+    - `deviceId:sensorIndex` (예: `DEVICE-001:42`)
   - **Record Value (Body)**:
-    - 1초 동안 변동이 일어난 센서들만 선별된 JSON 배열:
+    - 모아서 전송하지 않는 단일 센서 JSON 객체 (실제 IoT 장치 스트리밍 규격):
       ```json
-      [
-        {
-          "sensorIndex": 3,
-          "value": 45.215,
-          "status": "normal"
-        },
-        {
-          "sensorIndex": 42,
-          "value": 0.0,
-          "status": "down"
-        }
-      ]
+      {
+        "sensorIndex": 42,
+        "value": 45.215,
+        "status": "normal"
+      }
       ```
 * **논블로킹 비동기 전송 (Non-blocking Async Send)**:
-  - Kafka 전송 시 `.send(record, callback)`으로 호출하여 네트워크 왕복 대기(RTT) 없이 즉시 다음 루프로 복귀합니다.
+  - 센서 데이터를 배열로 모아서 보내지 않고, 1초마다 각 센서 레코드를 즉시 `.sendSensorAsync()`로 비동기 전송합니다.
   - 프로듀서 옵션: `linger.ms = 0` (대기 버퍼링 없이 즉시 패킷 송출), `acks = 1`, `max.block.ms = 1000`.
 
 ---

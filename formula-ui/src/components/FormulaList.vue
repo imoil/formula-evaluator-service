@@ -225,6 +225,7 @@
 import { ref, computed } from 'vue'
 import type { FormulaDefinition } from '../types/formula'
 import { useFormulaStore } from '../stores/formulaStore'
+import { formatLocalDateTime } from '../utils/dateUtils'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -318,7 +319,7 @@ function exportData() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `formulas_backup_${new Date().toISOString().substring(0, 10)}.json`
+  a.download = `formulas_backup_${formatLocalDateTime().substring(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
   notify('Exported formulas as JSON!')

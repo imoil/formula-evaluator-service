@@ -117,26 +117,23 @@ public class SensorDeviceEmulator implements Closeable {
 
         long tickStartNs = System.nanoTime();
 
-        // 1. 1000개 센서 평가 및 변동된 센서 수집
+        // 1. 1000개 센서 평가 및 모아서 전송하지 않고 1초마다 개별 카프카 메시지로 즉시 전송
         List<SensorItem> changedSensors = new ArrayList<>();
         for (EmulatedSensor sensor : sensors) {
             SensorItem item = sensor.evaluateTick(now, random);
             if (item != null) {
                 changedSensors.add(item);
+                // 모아서 전송하지 않고 각 센서별로 1초마다 즉시 발송
+                kafkaProducer.sendSensorAsync(config.getDeviceId(), now, item);
+                totalChangedSensorsCount.incrementAndGet();
             }
-        }
-
-        // 2. 변동된 센서가 존재할 경우 카프카에 전송
-        if (!changedSensors.isEmpty()) {
-            kafkaProducer.sendSensorBatchAsync(config.getDeviceId(), now, changedSensors);
-            totalChangedSensorsCount.addAndGet(changedSensors.size());
         }
 
         long currentTick = tickCount.incrementAndGet();
         long elapsedMicros = (System.nanoTime() - tickStartNs) / 1_000L;
 
         if (currentTick % 5 == 0 || log.isDebugEnabled()) {
-            log.info("Tick #{}: {}/{} sensors changed, processed in {} \u00b5s (device: {})",
+            log.info("Tick #{}: {}/{} sensors emitted individually, processed in {} µs (device: {})",
                     currentTick, changedSensors.size(), sensors.size(), elapsedMicros, config.getDeviceId());
         }
 

@@ -22,13 +22,13 @@ public class EmulatorConfig {
     @Builder.Default
     private int sensorCount = 1000;
 
-    /** 센서별 최소 변동 주기 (초) */
+    /** 센서별 최소 변동 주기 (초, 기본 1초) */
     @Builder.Default
     private int minIntervalSeconds = 1;
 
-    /** 센서별 최대 변동 주기 (초) */
+    /** 센서별 최대 변동 주기 (초, 기본 1초 - 실제 IoT 장치처럼 1초마다 전송) */
     @Builder.Default
-    private int maxIntervalSeconds = 10;
+    private int maxIntervalSeconds = 1;
 
     /** Kafka 전송 주기 (밀리초, 기본 1000ms = 1초) */
     @Builder.Default

@@ -7,6 +7,7 @@ import { useFormulaStore } from './formulaStore'
 import { useSensorStore } from './sensorStore'
 import { simulateFormula, getRequiredSensors } from '../services/formulaEngine'
 import { evaluateOnBackend } from '../services/apiClient'
+import { formatLocalTime, getRecentLocalTimeRange } from '../utils/dateUtils'
 
 export const useSimulationStore = defineStore('simulation', () => {
   const formulaStore = useFormulaStore()
@@ -67,19 +68,18 @@ export const useSimulationStore = defineStore('simulation', () => {
       if (config.value.useBackend) {
         // Mode 1: Full evaluation via Spring Boot REST backend (/api/v1/evaluate)
         const primarySensor = config.value.targetSensorId || formula.targetSensor || 'sensor_000'
+        const timeRange = getRecentLocalTimeRange(config.value.durationSeconds)
         const rawPoints = await evaluateOnBackend({
           sensorId: primarySensor,
           expression: formula.expression,
-          startTime: '2026-10-09T20:00:00Z',
-          endTime: '2026-10-09T21:00:00Z',
+          startTime: timeRange.startTime,
+          endTime: timeRange.endTime,
           sampleBy: config.value.sampleStep > 1 ? `${config.value.sampleStep}s` : '1s',
         })
 
-        // Transform backend response into SimulationResult
+        // Transform backend response into SimulationResult (All times formatted in Local Date Time)
         const mappedPoints = rawPoints.map((pt: any, idx: number) => {
-          const timeStr = typeof pt.timestamp === 'number'
-            ? new Date(pt.timestamp).toISOString().substring(11, 19)
-            : pt.timestamp.includes('T') ? pt.timestamp.split('T')[1].replace('Z', '') : pt.timestamp
+          const timeStr = formatLocalTime(pt.timestamp)
           const ms = typeof pt.timestamp === 'number'
             ? pt.timestamp
             : new Date(pt.timestamp).getTime()

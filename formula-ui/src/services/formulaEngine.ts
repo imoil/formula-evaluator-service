@@ -1,6 +1,7 @@
 import type { FormulaDefinition, FormulaDependencyInfo, SimulationResultPoint, SimulationMetrics } from '../types/formula'
 import { generateSensorTimeSeries } from './sensorDataGenerator'
 import { CircularBuffer } from './circularBuffer'
+import { formatLocalTime } from '../utils/dateUtils'
 
 /**
  * Normalize sensor identifier: strips 'P_' or 'SN_' prefix when followed by digits ('P_10001' -> '10001')
@@ -511,14 +512,15 @@ export function simulateFormula(
     if (isNaN(finalOutput)) nanCount++
 
     if (shouldRecord) {
+      const fallbackMs = primaryPt ? primaryPt.timestampMs : 1791576000000 + t * 1000
       const timeLabel = primaryPt
         ? primaryPt.timestamp
-        : new Date(1791576000000 + t * 1000).toISOString().substring(11, 19)
+        : formatLocalTime(fallbackMs)
 
       resultPoints.push({
         index: t,
         timestamp: timeLabel,
-        timestampMs: primaryPt ? primaryPt.timestampMs : 1791576000000 + t * 1000,
+        timestampMs: fallbackMs,
         primarySensorValue: primarySensorVal,
         computedValue: Math.round(finalOutput * 1000) / 1000,
         subFormulaValues: intermediateValues,

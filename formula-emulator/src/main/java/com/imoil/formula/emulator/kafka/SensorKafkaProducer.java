@@ -27,6 +27,7 @@ public class SensorKafkaProducer implements Closeable {
 
     public static final String HEADER_DEVICE_ID = "deviceId";
     public static final String HEADER_TIMESTAMP = "timestamp";
+    public static final String HEADER_SENSOR_INDEX = "sensorIndex";
 
     private final Producer<String, String> producer;
     private final String topic;
@@ -57,6 +58,61 @@ public class SensorKafkaProducer implements Closeable {
         props.put(ProducerConfig.RETRIES_CONFIG, 1);
 
         return new KafkaProducer<>(props);
+    }
+
+    /**
+     * 실제 IoT 장치처럼 모아서 전송하지 않고 1초마다 개별 센서 레코드를 즉시 카프카로 비동기 전송합니다.
+     *
+     * @param deviceId  장치명 (헤더 및 키에 포함)
+     * @param timestamp 전송 시각 (헤더에 포함)
+     * @param item      단일 센서 측정 데이터 (바디에 JSON 객체로 직렬화)
+     */
+    public void sendSensorAsync(String deviceId, long timestamp, SensorItem item) {
+        if (item == null) {
+            return;
+        }
+        try {
+            // 1. 헤더 구성: 장치명, 전송 시간, 센서 인덱스
+            RecordHeaders headers = new RecordHeaders();
+            headers.add(new RecordHeader(HEADER_DEVICE_ID, deviceId.getBytes(StandardCharsets.UTF_8)));
+            headers.add(new RecordHeader(HEADER_TIMESTAMP, String.valueOf(timestamp).getBytes(StandardCharsets.UTF_8)));
+            headers.add(new RecordHeader(HEADER_SENSOR_INDEX, String.valueOf(item.getSensorIndex()).getBytes(StandardCharsets.UTF_8)));
+
+            // 2. 바디 구성: 단일 센서 측정값 JSON 객체
+            String bodyJson = objectMapper.writeValueAsString(item);
+
+            // 3. Kafka ProducerRecord 생성 (Key: deviceId:sensorIndex)
+            ProducerRecord<String, String> record = new ProducerRecord<>(
+                    topic,
+                    null,
+                    timestamp,
+                    deviceId + ":" + item.getSensorIndex(),
+                    bodyJson,
+                    headers
+            );
+
+            // 4. 비동기 논블로킹 전송
+            Callback callback = (metadata, exception) -> {
+                if (exception != null) {
+                    failedMessageCount.incrementAndGet();
+                    log.error("Kafka send failed for device: {}, sensorIndex: {} at timestamp: {}",
+                            deviceId, item.getSensorIndex(), timestamp, exception);
+                } else {
+                    long total = sentMessageCount.incrementAndGet();
+                    if (total % 1000 == 0 || log.isDebugEnabled()) {
+                        log.info("Sent Kafka sensor #{}: device={}, sensorIndex={}, partition={}, offset={}",
+                                total, deviceId, item.getSensorIndex(), metadata.partition(), metadata.offset());
+                    }
+                }
+            };
+
+            producer.send(record, callback);
+
+        } catch (Exception e) {
+            failedMessageCount.incrementAndGet();
+            log.error("Error creating/sending Kafka sensor message for device: {}, sensorIndex: {}",
+                    deviceId, item.getSensorIndex(), e);
+        }
     }
 
     /**
