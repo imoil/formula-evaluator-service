@@ -47,7 +47,7 @@
 
     <!-- Main Content Container -->
     <v-main class="bg-background">
-      <v-container fluid class="pa-4 pa-md-6" style="max-width: 1600px">
+      <v-container fluid class="pa-3 pa-sm-4 pa-md-6 w-100" style="max-width: 100%">
         <!-- Main Navigation Tabs -->
         <v-card class="mb-4 border elevation-0" rounded="lg">
           <v-tabs
