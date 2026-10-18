@@ -28,6 +28,21 @@
           <v-icon start size="14">mdi-database</v-icon>
           {{ sensorRegistryStore.isBackendConnected ? 'Oracle 19c: Online' : 'Oracle 19c: Local Standalone' }}
         </v-chip>
+
+        <!-- QuestDB Status Pill (Clickable -> Opens QuestDB Web Console in new window) -->
+        <v-chip
+          size="small"
+          :color="isQuestDbOnline ? 'success' : 'warning'"
+          variant="tonal"
+          class="cursor-pointer"
+          title="QuestDB 웹 콘솔 열기 (새 창)"
+          @click="openQuestDbConsole"
+        >
+          <v-icon start size="14">mdi-database-clock</v-icon>
+          {{ isQuestDbOnline ? 'QuestDB: Online' : 'QuestDB: Offline' }}
+          <v-icon end size="12" class="ml-1">mdi-open-in-new</v-icon>
+        </v-chip>
+
         <v-chip size="small" color="primary" variant="tonal">
           <v-icon start size="14">mdi-numeric</v-icon>
           {{ sensorRegistryStore.totalCount }} Serialized Sensors ({{ sensorRegistryStore.physicalCount }} Physical · {{ sensorRegistryStore.formulaCount }} Formula)
@@ -100,9 +115,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useTheme } from 'vuetify'
 import type { SensorRegistryItem } from './types/sensorRegistry'
+import { fetchQuestDbStatus } from './services/apiClient'
 import { useSensorStore } from './stores/sensorStore'
 import { useSensorRegistryStore } from './stores/sensorRegistryStore'
 import { useSimulationStore } from './stores/simulationStore'
@@ -118,6 +134,26 @@ const simulationStore = useSimulationStore()
 const activeTab = ref<'registry' | 'simulation' | 'sensors'>('registry')
 
 const isDarkTheme = computed(() => theme.global.current.value.dark)
+
+const isQuestDbOnline = ref<boolean>(false)
+const questDbConsoleUrl = ref<string>('http://localhost:9000')
+let questDbPollTimer: any = null
+
+async function checkQuestDb() {
+  try {
+    const res = await fetchQuestDbStatus()
+    isQuestDbOnline.value = res.connected
+    if (res.webConsoleUrl) {
+      questDbConsoleUrl.value = res.webConsoleUrl
+    }
+  } catch {
+    isQuestDbOnline.value = false
+  }
+}
+
+function openQuestDbConsole() {
+  window.open(questDbConsoleUrl.value, '_blank')
+}
 
 function toggleTheme() {
   theme.global.name.value = isDarkTheme.value ? 'light' : 'dark'
@@ -142,11 +178,24 @@ watch(activeTab, async () => {
 onMounted(() => {
   sensorRegistryStore.fetchSensors()
   sensorStore.loadSensors()
+  checkQuestDb()
+  questDbPollTimer = setInterval(checkQuestDb, 15000)
+})
+
+onBeforeUnmount(() => {
+  if (questDbPollTimer) {
+    clearInterval(questDbPollTimer)
+    questDbPollTimer = null
+  }
 })
 </script>
 
 <style>
 /* Global styles */
+.cursor-pointer {
+  cursor: pointer;
+}
+
 html,
 body {
   margin: 0;

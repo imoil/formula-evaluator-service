@@ -128,6 +128,67 @@
           </v-toolbar>
 
           <v-card-text class="pa-4">
+            <!-- Source Badge & Interactive Refresh / RealTime Action Controls -->
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-3">
+              <div class="d-flex align-center gap-1">
+                <v-chip
+                  size="x-small"
+                  :color="currentDataSource === 'QUESTDB' ? 'success' : 'warning'"
+                  variant="flat"
+                  class="font-weight-bold"
+                >
+                  <v-icon start size="12">
+                    {{ currentDataSource === 'QUESTDB' ? 'mdi-database-check' : 'mdi-flask-outline' }}
+                  </v-icon>
+                  {{ currentDataSource === 'QUESTDB' ? 'QuestDB Live' : 'Mock Sensor Data' }}
+                </v-chip>
+                <v-chip
+                  v-if="isRealTimeActive"
+                  size="x-small"
+                  color="error"
+                  variant="tonal"
+                  class="font-weight-medium"
+                >
+                  <v-icon start size="10">mdi-record</v-icon>
+                  Live Streaming (1s)
+                </v-chip>
+              </div>
+
+              <div class="d-flex align-center gap-2">
+                <v-btn
+                  size="x-small"
+                  variant="tonal"
+                  color="primary"
+                  prepend-icon="mdi-refresh"
+                  :loading="isRefreshing"
+                  @click="refreshTrendChart"
+                >
+                  Refresh
+                </v-btn>
+                <v-btn
+                  size="x-small"
+                  :color="isRealTimeActive ? 'error' : 'secondary'"
+                  :variant="isRealTimeActive ? 'flat' : 'outlined'"
+                  prepend-icon="mdi-broadcast"
+                  @click="toggleRealTime"
+                >
+                  {{ isRealTimeActive ? 'RealTime: ON' : 'RealTime' }}
+                </v-btn>
+              </div>
+            </div>
+
+            <!-- Fallback Mock Sensor Data Alert Banner -->
+            <v-alert
+              v-if="currentDataSource === 'MOCK'"
+              type="warning"
+              density="compact"
+              variant="tonal"
+              class="mb-3 text-caption py-1 px-3"
+              icon="mdi-flask-outline"
+            >
+              <span><strong>[Fallback]</strong> QuestDB 시계열 데이터가 없어 <strong>Mock Sensor Data</strong>가 표시 중입니다.</span>
+            </v-alert>
+
             <div class="d-flex justify-space-between mb-3 text-caption">
               <div>
                 <strong>Category:</strong> {{ previewSensor.category }}
@@ -195,6 +256,12 @@ const previewChartRef = ref<HTMLDivElement | null>(null)
 let previewChartInstance: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
+const currentDataSource = ref<'QUESTDB' | 'MOCK'>('MOCK')
+const isRefreshing = ref<boolean>(false)
+const isRealTimeActive = ref<boolean>(false)
+const currentChartPoints = ref<{ timestamp: string; value: number }[]>([])
+let realTimeInterval: any = null
+
 const filteredSensors = computed(() => {
   return sensorStore.sensors.filter((s) => {
     if (selectedCategory.value !== 'ALL' && s.category !== selectedCategory.value) {
@@ -232,6 +299,8 @@ watch(
     if (active) {
       await nextTick()
       handleResize()
+    } else {
+      stopRealTime()
     }
   }
 )
@@ -239,10 +308,10 @@ watch(
 async function selectPreviewSensor(s: SensorMetadata) {
   previewSensor.value = s
   await nextTick()
-  renderPreviewChart()
+  await renderPreviewChart()
 }
 
-async function renderPreviewChart() {
+async function renderPreviewChart(forceReload = false) {
   if (!previewChartRef.value || !previewSensor.value) return
 
   if (previewChartRef.value.clientWidth === 0) {
@@ -254,19 +323,41 @@ async function renderPreviewChart() {
   }
 
   // Load 1-hour time series from backend sensorStore (downsampled to 360 points for quick preview)
-  const fullPoints = await sensorStore.fetchTimeSeries(previewSensor.value.id, 3600)
+  const fullPoints = await sensorStore.fetchTimeSeries(previewSensor.value.id, 3600, forceReload)
+  currentDataSource.value = sensorStore.getSensorSource(previewSensor.value.id)
+
   const sampleStep = 10
   const sampled = fullPoints.filter((_, idx) => idx % sampleStep === 0)
 
-  const timestamps = sampled.map((p) => p.timestamp)
-  const values = sampled.map((p) => p.value)
+  currentChartPoints.value = sampled.map((p) => ({
+    timestamp: p.timestamp,
+    value: p.value,
+  }))
+
+  const timestamps = currentChartPoints.value.map((p) => p.timestamp)
+  const values = currentChartPoints.value.map((p) => p.value)
+
+  const isMock = currentDataSource.value === 'MOCK'
+  const lineColor = isMock ? '#f59e0b' : '#38bdf8'
+  const areaGradientTop = isMock ? 'rgba(245, 158, 11, 0.3)' : 'rgba(56, 189, 248, 0.3)'
+  const areaGradientBottom = isMock ? 'rgba(245, 158, 11, 0.0)' : 'rgba(56, 189, 248, 0.0)'
 
   const option: echarts.EChartsOption = {
     backgroundColor: 'transparent',
+    title: {
+      right: '2%',
+      top: '0%',
+      subtext: isMock ? '● Mock Sensor Data (Fallback)' : '● QuestDB Live TimeSeries',
+      subtextStyle: {
+        color: isMock ? '#fbbf24' : '#38bdf8',
+        fontSize: 10,
+        fontWeight: 'bold',
+      },
+    },
     grid: {
       left: '5%',
       right: '4%',
-      top: '10%',
+      top: '12%',
       bottom: '15%',
       containLabel: true,
     },
@@ -292,11 +383,11 @@ async function renderPreviewChart() {
         data: values,
         showSymbol: false,
         smooth: true,
-        lineStyle: { color: '#38bdf8', width: 1.8 },
+        lineStyle: { color: lineColor, width: 1.8 },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(56, 189, 248, 0.3)' },
-            { offset: 1, color: 'rgba(56, 189, 248, 0.0)' },
+            { offset: 0, color: areaGradientTop },
+            { offset: 1, color: areaGradientBottom },
           ]),
         },
       },
@@ -305,6 +396,82 @@ async function renderPreviewChart() {
 
   previewChartInstance.setOption(option, true)
   previewChartInstance.resize()
+}
+
+async function refreshTrendChart() {
+  if (isRefreshing.value || !previewSensor.value) return
+  isRefreshing.value = true
+  try {
+    await renderPreviewChart(true)
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+function toggleRealTime() {
+  if (isRealTimeActive.value) {
+    stopRealTime()
+  } else {
+    startRealTime()
+  }
+}
+
+function startRealTime() {
+  stopRealTime()
+  isRealTimeActive.value = true
+
+  realTimeInterval = setInterval(async () => {
+    if (!previewSensor.value || !previewChartInstance) return
+
+    const lastVal =
+      currentChartPoints.value.length > 0
+        ? currentChartPoints.value[currentChartPoints.value.length - 1].value
+        : undefined
+
+    const nextPoint = await sensorStore.fetchLatestPoint(previewSensor.value.id, lastVal)
+    currentDataSource.value = sensorStore.getSensorSource(previewSensor.value.id)
+
+    currentChartPoints.value.push({
+      timestamp: nextPoint.timestamp,
+      value: nextPoint.value,
+    })
+
+    if (currentChartPoints.value.length > 360) {
+      currentChartPoints.value.shift()
+    }
+
+    const isMock = currentDataSource.value === 'MOCK'
+    const lineColor = isMock ? '#f59e0b' : '#38bdf8'
+
+    previewChartInstance.setOption({
+      title: {
+        subtext: isMock ? '● Mock Sensor Data (Fallback)' : '● QuestDB Live TimeSeries',
+        subtextStyle: {
+          color: isMock ? '#fbbf24' : '#38bdf8',
+          fontSize: 10,
+          fontWeight: 'bold',
+        },
+      },
+      xAxis: {
+        data: currentChartPoints.value.map((p) => p.timestamp),
+      },
+      series: [
+        {
+          name: previewSensor.value.id,
+          data: currentChartPoints.value.map((p) => p.value),
+          lineStyle: { color: lineColor, width: 1.8 },
+        },
+      ],
+    })
+  }, 1000)
+}
+
+function stopRealTime() {
+  isRealTimeActive.value = false
+  if (realTimeInterval) {
+    clearInterval(realTimeInterval)
+    realTimeInterval = null
+  }
 }
 
 function handleResize() {
@@ -344,6 +511,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopRealTime()
   window.removeEventListener('resize', handleResize)
   if (resizeObserver) {
     resizeObserver.disconnect()
@@ -356,6 +524,14 @@ onBeforeUnmount(() => {
 <style scoped>
 .font-monospace {
   font-family: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, Consolas, monospace !important;
+}
+
+.gap-1 {
+  gap: 4px;
+}
+
+.gap-2 {
+  gap: 8px;
 }
 
 .preview-chart-box {

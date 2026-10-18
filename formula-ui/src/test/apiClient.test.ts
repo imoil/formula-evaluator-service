@@ -4,6 +4,8 @@ import {
   evaluateOnDemandBackend,
   fetchBackendSensors,
   fetchBackendSensorTimeSeries,
+  fetchQuestDbStatus,
+  fetchBackendLatestPoint,
   type BackendEvaluationParams,
 } from '../services/apiClient'
 import type { SensorDataPoint, SensorMetadata } from '../types/sensor'
@@ -213,5 +215,86 @@ describe('apiClient service', () => {
         'Failed to fetch time series from backend (404)'
       )
     })
+
+    it('passes options like latest, limit, and reads X-Data-Source header', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'X-Data-Source': 'QUESTDB' }),
+        json: async () => mockTimeSeries,
+      })
+      globalThis.fetch = fetchMock
+
+      const result = await fetchBackendSensorTimeSeries('10001', {
+        latest: true,
+        limit: 1,
+        sampleBy: '1s',
+      })
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url] = fetchMock.mock.calls[0]
+      expect(url).toContain('latest=true')
+      expect(url).toContain('limit=1')
+      expect(url).toContain('sampleBy=1s')
+      expect((result as any).dataSource).toBe('QUESTDB')
+    })
+  })
+
+  describe('fetchQuestDbStatus', () => {
+    it('returns ONLINE when backend reports connected', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'ONLINE',
+          connected: true,
+          webConsoleUrl: 'http://localhost:9000',
+        }),
+      })
+      globalThis.fetch = fetchMock
+
+      const res = await fetchQuestDbStatus()
+      expect(res.status).toBe('ONLINE')
+      expect(res.connected).toBe(true)
+      expect(res.webConsoleUrl).toBe('http://localhost:9000')
+    })
+
+    it('falls back to OFFLINE when backend fails or times out', async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new Error('Connection refused'))
+      globalThis.fetch = fetchMock
+
+      const res = await fetchQuestDbStatus()
+      expect(res.status).toBe('OFFLINE')
+      expect(res.connected).toBe(false)
+      expect(res.webConsoleUrl).toBe('http://localhost:9000')
+    })
+  })
+
+  describe('fetchBackendLatestPoint', () => {
+    it('returns the first point with dataSource attached', async () => {
+      const mockPoints: SensorDataPoint[] = [
+        {
+          timestamp: '2025-01-01T00:00:00Z',
+          timestampMs: 1735689600000,
+          value: 42.5,
+          sensorId: '10001',
+          state: 0,
+          hasInaccurateData: false,
+        },
+      ]
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'X-Data-Source': 'QUESTDB' }),
+        json: async () => mockPoints,
+      })
+      globalThis.fetch = fetchMock
+
+      const point = await fetchBackendLatestPoint('10001')
+      expect(point).not.toBeNull()
+      expect(point?.value).toBe(42.5)
+      expect((point as any)?.dataSource).toBe('QUESTDB')
+    })
   })
 })
+

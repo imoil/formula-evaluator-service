@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { SensorMetadata, SensorDataPoint } from '../types/sensor'
-import { fetchBackendSensors, fetchBackendSensorTimeSeries } from '../services/apiClient'
+import { fetchBackendSensors, fetchBackendSensorTimeSeries, fetchBackendLatestPoint } from '../services/apiClient'
 import { getAllSensors as getFallbackSensors, generateSensorTimeSeries as getFallbackTimeSeries } from '../services/sensorDataGenerator'
 import { useSensorRegistryStore } from './sensorRegistryStore'
 
@@ -18,6 +18,7 @@ export const useSensorStore = defineStore('sensor', () => {
   const isLoading = ref<boolean>(false)
   const isBackendConnected = ref<boolean>(false)
   const errorMessage = ref<string | null>(null)
+  const sensorSourceMap = ref<Record<string, 'QUESTDB' | 'MOCK'>>({})
 
   // In-memory cache for loaded sensor time-series datasets
   const timeSeriesCache = new Map<string, SensorDataPoint[]>()
@@ -116,9 +117,18 @@ export const useSensorStore = defineStore('sensor', () => {
   }
 
   /**
-   * 특정 센서의 1시간 시계열 데이터 조회 (온디맨드 시뮬레이션용)
+   * 특정 센서의 1시간 시계열 데이터 조회 (온디맨드 시뮬레이션 및 트렌드 차트용)
+   * forceReload가 true인 경우 캐시를 무효화하고 최신 QuestDB/백엔드 데이터를 다시 로드합니다.
    */
-  async function fetchTimeSeries(sensorId: string, durationSeconds = 3600): Promise<SensorDataPoint[]> {
+  async function fetchTimeSeries(
+    sensorId: string,
+    durationSeconds = 3600,
+    forceReload = false
+  ): Promise<SensorDataPoint[]> {
+    if (forceReload) {
+      timeSeriesCache.delete(sensorId)
+    }
+
     if (timeSeriesCache.has(sensorId)) {
       return timeSeriesCache.get(sensorId)!
     }
@@ -126,6 +136,7 @@ export const useSensorStore = defineStore('sensor', () => {
     if (isTestEnv) {
       const fallback = getFallbackTimeSeries(sensorId, durationSeconds).points
       timeSeriesCache.set(sensorId, fallback)
+      sensorSourceMap.value[sensorId] = 'MOCK'
       return fallback
     }
 
@@ -147,6 +158,9 @@ export const useSensorStore = defineStore('sensor', () => {
         }
       })
 
+      const source = (rawPoints as any).dataSource === 'QUESTDB' ? 'QUESTDB' : 'MOCK'
+      sensorSourceMap.value[sensorId] = source
+
       timeSeriesCache.set(sensorId, mapped)
       isBackendConnected.value = true
       return mapped
@@ -154,7 +168,69 @@ export const useSensorStore = defineStore('sensor', () => {
       console.warn(`Failed to fetch time series for [${sensorId}] from backend, using fallback generator:`, err)
       const fallback = getFallbackTimeSeries(sensorId, durationSeconds).points
       timeSeriesCache.set(sensorId, fallback)
+      sensorSourceMap.value[sensorId] = 'MOCK'
       return fallback
+    }
+  }
+
+  /**
+   * 센서 데이터의 원천(QUESTDB 또는 MOCK Fallback)을 반환합니다.
+   */
+  function getSensorSource(sensorId: string): 'QUESTDB' | 'MOCK' {
+    return sensorSourceMap.value[sensorId] || 'MOCK'
+  }
+
+  /**
+   * RealTime 모드를 위해 가장 최신의 단일 데이터 포인트를 조회하거나 합성합니다.
+   */
+  async function fetchLatestPoint(sensorId: string, lastValue?: number): Promise<SensorDataPoint> {
+    if (!isTestEnv && isBackendConnected.value) {
+      try {
+        const pt = await fetchBackendLatestPoint(sensorId)
+        if (pt) {
+          const ms = typeof pt.timestamp === 'number' ? pt.timestamp : new Date(pt.timestamp).getTime()
+          const timeStr = typeof pt.timestamp === 'number'
+            ? new Date(pt.timestamp).toISOString().substring(11, 19)
+            : String(pt.timestamp).substring(11, 19)
+          const source = (pt as any).dataSource === 'QUESTDB' ? 'QUESTDB' : 'MOCK'
+          sensorSourceMap.value[sensorId] = source
+          return {
+            sensorId: pt.sensorId,
+            timestampMs: ms,
+            timestamp: timeStr,
+            value: pt.value,
+            state: pt.state ?? 0,
+            hasInaccurateData: pt.hasInaccurateData ?? false,
+          }
+        }
+      } catch {
+        // Fallback to local continuous generator below
+      }
+    }
+
+    // Local / Offline fallback point generation
+    sensorSourceMap.value[sensorId] = 'MOCK'
+    const meta = getSensorById(sensorId)
+    const mean = meta?.mean ?? 50.0
+    const stdDev = meta?.stdDev ?? 3.0
+    const minClamp = meta?.minClamp ?? 0.0
+    const maxClamp = meta?.maxClamp ?? 200.0
+
+    const now = new Date()
+    const timeStr = now.toISOString().substring(11, 19)
+    const noise = (Math.random() - 0.5) * stdDev * 0.4
+    let val = lastValue != null ? lastValue + noise : mean + noise
+    if (val < minClamp) val = minClamp
+    if (val > maxClamp) val = maxClamp
+    val = Math.round(val * 100.0) / 100.0
+
+    return {
+      sensorId,
+      timestampMs: now.getTime(),
+      timestamp: timeStr,
+      value: val,
+      state: 0,
+      hasInaccurateData: false,
     }
   }
 
@@ -164,8 +240,12 @@ export const useSensorStore = defineStore('sensor', () => {
     isLoading,
     isBackendConnected,
     errorMessage,
+    sensorSourceMap,
     loadSensors,
     getSensorById,
     fetchTimeSeries,
+    getSensorSource,
+    fetchLatestPoint,
   }
 })
+
