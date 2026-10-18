@@ -126,6 +126,33 @@ describe('Sensor Registry Pinia Store', () => {
     store.searchQuery = '10002';
     expect(store.filteredSensors.length).toBe(2);
     expect(store.filteredSensors.some((s) => s.serialNumber === 10002)).toBe(true);
+
+    // When searchQuery is cleared to empty string or null (Vuetify clear icon), filter resets while dropdown filter persists
+    store.typeFilter = 'PHYSICAL';
+    store.searchQuery = '10002';
+    expect(store.filteredSensors.length).toBe(1);
+    expect(store.filteredSensors[0].serialNumber).toBe(10002);
+
+    // Clear search keyword with clearSearchQuery()
+    store.clearSearchQuery();
+    expect(store.searchQuery).toBe('');
+    // Dropdown typeFilter should still be applied!
+    expect(store.filteredSensors.every((s) => s.sensorType === 'PHYSICAL')).toBe(true);
+    expect(store.filteredSensors.length).toBe(store.physicalCount);
+
+    // Vuetify clearable can set searchQuery to null - should handle safely without throwing
+    store.searchQuery = null as unknown as string;
+    expect(store.filteredSensors.every((s) => s.sensorType === 'PHYSICAL')).toBe(true);
+    expect(store.filteredSensors.length).toBe(store.physicalCount);
+
+    // Reset all filters button action
+    expect(store.isFilterActive).toBe(true);
+    store.resetFilters();
+    expect(store.searchQuery).toBe('');
+    expect(store.typeFilter).toBe('ALL');
+    expect(store.deviceFilter).toBe('ALL');
+    expect(store.isFilterActive).toBe(false);
+    expect(store.filteredSensors.length).toBe(store.totalCount);
   });
 
   it('synchronizes formula rules to Flink and updates status', async () => {

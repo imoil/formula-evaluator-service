@@ -43,7 +43,18 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     return Array.from(set).sort();
   });
 
+  const isFilterActive = computed(() => {
+    const rawQuery = searchQuery.value ?? '';
+    const hasSearch = typeof rawQuery === 'string' && rawQuery.trim() !== '';
+    const hasType = typeFilter.value !== 'ALL';
+    const hasDevice = deviceFilter.value !== 'ALL';
+    return hasSearch || hasType || hasDevice;
+  });
+
   const filteredSensors = computed(() => {
+    const rawQuery = searchQuery.value ?? '';
+    const q = typeof rawQuery === 'string' ? rawQuery.trim().toLowerCase() : '';
+
     return sensors.value.filter((s) => {
       if (typeFilter.value !== 'ALL' && s.sensorType !== typeFilter.value) {
         return false;
@@ -51,8 +62,7 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
       if (deviceFilter.value !== 'ALL' && s.deviceId !== deviceFilter.value) {
         return false;
       }
-      if (searchQuery.value.trim() !== '') {
-        const q = searchQuery.value.toLowerCase().trim();
+      if (q !== '') {
         const matchesSerial = s.serialNumber.toString().includes(q);
         const matchesCode = s.sensorCode.toLowerCase().includes(q);
         const matchesName = s.sensorName.toLowerCase().includes(q);
@@ -73,23 +83,24 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     });
   });
 
+  function resetFilters() {
+    searchQuery.value = '';
+    typeFilter.value = 'ALL';
+    deviceFilter.value = 'ALL';
+  }
+
+  function clearSearchQuery() {
+    searchQuery.value = '';
+  }
+
   // Actions
   async function fetchSensors() {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      let res = await sensorRegistryApi.fetchSensors({
-        type: typeFilter.value !== 'ALL' ? typeFilter.value : undefined,
-        deviceId: deviceFilter.value !== 'ALL' ? deviceFilter.value : undefined,
-        keyword: searchQuery.value || undefined,
-      });
+      let res = await sensorRegistryApi.fetchSensors();
 
-      const isUnfiltered =
-        typeFilter.value === 'ALL' &&
-        deviceFilter.value === 'ALL' &&
-        !searchQuery.value.trim();
-
-      if (res.isBackend && isUnfiltered && !hasEnsuredDefaultSeed.value) {
+      if (res.isBackend && !hasEnsuredDefaultSeed.value) {
         hasEnsuredDefaultSeed.value = true;
         const hasPhysical = res.data.some((s) => s.sensorType === 'PHYSICAL');
         const hasFormula = res.data.some((s) => s.sensorType === 'FORMULA');
@@ -266,6 +277,7 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     formulaCount,
     availableDevices,
     filteredSensors,
+    isFilterActive,
     fetchSensors,
     fetchNextSerial,
     createSensor,
@@ -274,6 +286,8 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     deleteSensor,
     syncDeviceSensors,
     syncRulesToFlink,
+    resetFilters,
+    clearSearchQuery,
   };
 });
 

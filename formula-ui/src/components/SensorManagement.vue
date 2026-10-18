@@ -116,6 +116,7 @@
               density="compact"
               hide-details
               clearable
+              @click:clear="store.clearSearchQuery"
             />
           </v-col>
 
@@ -143,8 +144,25 @@
             />
           </v-col>
 
+          <!-- Reset Filters Button -->
+          <v-col cols="auto">
+            <v-btn
+              variant="outlined"
+              color="secondary"
+              density="comfortable"
+              prepend-icon="mdi-filter-off-outline"
+              :disabled="!store.isFilterActive"
+              title="Reset all search keywords and dropdown filters"
+              @click="store.resetFilters"
+            >
+              Reset Filters
+            </v-btn>
+          </v-col>
+
+          <v-spacer class="d-none d-md-block" />
+
           <!-- Action Buttons -->
-          <v-col cols="12" md="5" class="d-flex flex-wrap align-center justify-start justify-md-end gap-2 action-buttons-container">
+          <v-col cols="12" md="auto" class="d-flex flex-wrap align-center justify-start justify-md-end gap-2 action-buttons-container">
             <v-menu>
               <template #activator="{ props }">
                 <v-btn
@@ -227,7 +245,17 @@
           <tr v-if="store.filteredSensors.length === 0">
             <td colspan="9" class="text-center py-8 text-medium-emphasis">
               <v-icon size="40" class="mb-2">mdi-database-search-outline</v-icon>
-              <div>No registered sensors match the current filter criteria.</div>
+              <div class="mb-2">No registered sensors match the current filter criteria.</div>
+              <v-btn
+                v-if="store.isFilterActive"
+                size="small"
+                variant="outlined"
+                color="primary"
+                prepend-icon="mdi-filter-off-outline"
+                @click="store.resetFilters"
+              >
+                Reset All Filters
+              </v-btn>
             </td>
           </tr>
           <tr v-for="sensor in store.filteredSensors" :key="sensor.serialNumber">
