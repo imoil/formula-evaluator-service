@@ -21,7 +21,7 @@ public class DynamicRule implements Serializable {
 
     private String ruleId;
     
-    // 규칙을 적용할 대상 센서 ID (일련번호 예: "10001", "SN_10001")
+    // 규칙을 적용할 대상 센서 ID (일련번호 예: "10001", "P_10001")
     private String targetSensorId;
     
     // AviatorScript 엔진에 의해 수행될 수식 구문 
@@ -31,11 +31,11 @@ public class DynamicRule implements Serializable {
     // 히스토리 데이터(window_, previous_) 사용 여부 (성능 최적화를 위한 캐싱 필드)
     private boolean usesWindow;
 
-    // 수식 연산 결과로 방출할 파생/수식 센서의 단일 일련번호/식별자 (예: "10201", "SN_10201", 미설정 시 targetId + "_derived")
+    // 수식 연산 결과로 방출할 파생/수식 센서의 단일 일련번호/식별자 (예: "10201", "P_10201", 미설정 시 targetId + "_derived")
     private String derivedSensorId;
 
     /**
-     * 브로드캐스트 상태 키 및 스트림 매칭을 위한 정규 일련번호 식별자("SN_10001" -> "10001")를 반환합니다.
+     * 브로드캐스트 상태 키 및 스트림 매칭을 위한 정규 일련번호 식별자("P_10001" -> "10001")를 반환합니다.
      */
     public String canonicalTargetSerialId() {
         return SensorSerialResolver.toCanonicalSerialId(targetSensorId);

@@ -60,7 +60,7 @@ flowchart TD
     subgraph Step5["5단계: 동적 룰 평가 및 상태 계산"]
         direction TB
         KeyByStream["keyBy(SensorData::getSensorId)<br/>(단일 일련번호 해시 분산, 장치 간 충돌 원천 차단)"]
-        BroadcastRules["Rule Broadcast Stream<br/>(targetSensorId: '10001' or 'SN_10001', derivedSensorId: '10201')"]
+        BroadcastRules["Rule Broadcast Stream<br/>(targetSensorId: '10001' or 'P_10001', derivedSensorId: '10201')"]
         ProcessFunc["RuleBroadcastProcessFunction<br/>(KeyedBroadcastProcessFunction)"]
         RocksDBState["RocksDB State Backend<br/>(30분 슬라이딩 윈도우 + TTL 관리)"]
         AviatorJIT["AviatorScript 5.9.0 JIT 컴파일러<br/>(window_avg, window_max 연산)"]
@@ -152,8 +152,8 @@ flowchart TD
 * **KeyBy 수평 분산**: `keyBy(SensorData::getSensorId)`로 센서별 이벤트를 Flink 워커에 해시 분산합니다.
 * **Broadcast State 동적 룰 전파 (Canonical Serial ID 단일 키)**:
   - `rule-data` 토픽을 통해 발행된 관리자 수식을 모든 Flink 작업 노드로 복제(Broadcast)합니다.
-  - `RuleBroadcastProcessFunction`은 `DynamicRule.canonicalTargetSerialId()`를 통해 정규화된 단일 일련번호 키(`"10001"`) 하나로 `BroadcastState`를 관리하고, 유입 센서 ID도 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 정규화하여 `"10001"`과 `"SN_10001"` 입력을 모두 $O(1)$로 매칭합니다.
-  - 평가 시 `SensorSerialResolver.bindSerialIdentifiers(env, sensorId, value)`를 통해 `"10001"`과 `"SN_10001"`을 양방향 바인딩하고, `DynamicRule.resolveOutputSensorId(value.getSensorId())`를 통해 `derivedSensorId`(예: `"10201"`)가 부여된 파생 `SensorData`를 방출합니다.
+  - `RuleBroadcastProcessFunction`은 `DynamicRule.canonicalTargetSerialId()`를 통해 정규화된 단일 일련번호 키(`"10001"`) 하나로 `BroadcastState`를 관리하고, 유입 센서 ID도 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 정규화하여 `"10001"`과 `"P_10001"`(하위 호환 `"SN_10001"`) 입력을 모두 $O(1)$로 매칭합니다.
+  - 평가 시 `SensorSerialResolver.bindSerialIdentifiers(env, sensorId, value)`를 통해 `"10001"`과 `"P_10001"`(하위 호환 `"SN_10001"`)을 양방향 바인딩하고, `DynamicRule.resolveOutputSensorId(value.getSensorId())`를 통해 `derivedSensorId`(예: `"10201"`)가 부여된 파생 `SensorData`를 방출합니다.
 * **보안 샌드박스 및 `RuleEngineService.evaluatePoint` 평가**:
   - 브로드캐스트 룰 수신 시점에 `RuleEngineService.validateOnce`(`ExpressionValidator`)가 시스템 명령어, 리플렉션, 무한 루프 시도를 원천 차단하며, `RuleEngineConfig.createDefaultEvaluator()`로 구성된 AviatorScript 샌드박스 인스턴스를 공유합니다.
   - `RuleEngineService.evaluatePoint(expression, env, windowHistory)`가 `AbstractWindowFunction.bindWindowHistory`를 내부 캡슐화하여 `window_avg(10)` 또는 `value > 50`과 같은 수식을 나노초 단위로 평가합니다.
@@ -301,9 +301,9 @@ pnpm run dev
 1. 브라우저에서 `http://localhost:3000`으로 접속합니다.
 2. 상단 메뉴에서 **[Unified Sensor Registry]** 탭을 확인합니다 (물리 센서 및 수식 센서가 단일 테이블에 통합 표시됨).
 3. 상단 KPI 요약 카드 중 **[Formula Sensors (Derived / Aviator)]** 카드를 클릭하거나 Type 필터에서 `Formula Sensor`를 선택하면 수식 센서 목록만 즉시 필터링할 수 있습니다:
-   - `#10005` (`FML-PUMP-EFF-01`): Pump Thermal Efficiency Index (`window_avg(10) * 1.15 + (SN_10002 * 0.05)`)
-   - `#10006` (`FML-THERMAL-DELTA`): Device 1 vs Device 2 Temp Delta (`abs(SN_10001 - SN_10003)`)
-   - `#10007` (`TEMP_FAHRENHEIT`): Temperature (Fahrenheit) (`SN_10001 * 1.8 + 32`)
+   - `#10005` (`FML-PUMP-EFF-01`): Pump Thermal Efficiency Index (`window_avg(10) * 1.15 + (P_10002 * 0.05)`)
+   - `#10006` (`FML-THERMAL-DELTA`): Device 1 vs Device 2 Temp Delta (`abs(P_10001 - P_10003)`)
+   - `#10007` (`TEMP_FAHRENHEIT`): Temperature (Fahrenheit) (`P_10001 * 1.8 + 32`)
    - `#10008` (`SMOOTHED_TEMP`): Smoothed Temperature (60s Window Avg) (`window_avg(60)`)
    - `#10009` (`POWER_EFFICIENCY_INDEX`): Power Efficiency Composite Index (`(TEMP_FAHRENHEIT * 0.6) + (window_max(120) * 0.4)`)
 4. 상단 **"+ New Formula Sensor"** 또는 **"Register Sensor / Formula"** 버튼을 통해 신규 물리/수식 센서 등록, 수식 의존성 분석, 문법 검증 및 Dry-Run 테스트를 한 화면에서 수행할 수 있습니다.
@@ -342,11 +342,11 @@ podman exec -it kafka kafka-console-consumer \
   --topic sensor-data \
   --max-messages 5
 ```
-* **정상 결과**: `{"sensorId":"SN_10001","value":25.4,"timestamp":...,"status":"NORMAL"}` 형태의 JSON 메시지가 즉시 콘솔에 출력됩니다.
+* **정상 결과**: `{"sensorId":"P_10001","value":25.4,"timestamp":...,"status":"NORMAL"}` 형태의 JSON 메시지가 즉시 콘솔에 출력됩니다.
 
 #### [검증 B] Flink 스트리밍 평가 엔진 처리 확인
 Flink 터미널 로그를 확인하여 원본 센서와 동적 룰 매칭이 작동하는지 검증합니다:
-* 원본 센서 `SN_10001`(또는 `10001`)의 패킷을 수신했을 때:
+* 원본 센서 `P_10001`(또는 `10001`)의 패킷을 수신했을 때:
   ```text
   [Aviator Evaluation] Rule applied: rule_fahrenheit on sensor 10001 -> input=25.4, result=77.72, derivedSensorId=10201
   [QuestDbIlpSink] Emitted derived sensor event: sensorId=10201, value=77.72
@@ -359,7 +359,7 @@ Flink 터미널 로그를 확인하여 원본 센서와 동적 룰 매칭이 작
 -- 원본 센서(10001) 및 파생 화씨 센서(10201) 실시간 데이터 조회
 SELECT timestamp, sensor_id, value, state, has_inaccurate_data
 FROM sensor_data
-WHERE sensor_id IN ('10001', '10201', 'SN_10001')
+WHERE sensor_id IN ('10001', '10201', 'P_10001')
 ORDER BY timestamp DESC
 LIMIT 20;
 ```
@@ -378,12 +378,12 @@ Flink 애플리케이션을 **재시작하지 않고** 비즈니스 수식을 �
 
 #### 1) 수식 변경 및 재동기화 (방법 1 또는 방법 2)
 * **방법 1 (웹 UI 권장)**:
-  1. `http://localhost:3000`의 **[Unified Sensor Registry]** 탭에서 `SN_10201` 수식 센서의 [Edit] 버튼 클릭.
+  1. `http://localhost:3000`의 **[Unified Sensor Registry]** 탭에서 `P_10201` 수식 센서의 [Edit] 버튼 클릭.
   2. 수식을 `value * 1.8 + 32.0`에서 `value * 2.0 + 10.0`으로 수정 후 저장.
   3. 상단 **"🔄 Sync Rules to Flink"** 버튼 클릭.
 * **방법 2 (Kafka CLI 직접 전송)**:
   ```bash
-  echo '{"ruleId":"rule_fahrenheit","targetSensorId":"SN_10001","expression":"value * 2.0 + 10.0","derivedSensorId":"10201","usesWindow":false}' | podman exec -i kafka kafka-console-producer --bootstrap-server localhost:9092 --topic rule-data
+  echo '{"ruleId":"rule_fahrenheit","targetSensorId":"P_10001","expression":"value * 2.0 + 10.0","derivedSensorId":"10201","usesWindow":false}' | podman exec -i kafka kafka-console-producer --bootstrap-server localhost:9092 --topic rule-data
   ```
 
 #### 2) 무중단 즉시 반영 검증

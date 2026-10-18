@@ -96,7 +96,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start(["센서 데이터 유입: processElement"]) --> Canonicalize["SensorSerialResolver.toCanonicalSerialId(sensorId)<br/>('SN_10001' ➔ '10001')"]
+    Start(["센서 데이터 유입: processElement"]) --> Canonicalize["SensorSerialResolver.toCanonicalSerialId(sensorId)<br/>('P_10001' ➔ '10001')"]
     Canonicalize --> CheckRule{"BroadcastState에 정규화 키('10001')<br/>룰이 존재하는가?"}
     
     CheckRule -->|No| IncMiss["ruleMissCounter.inc()"] --> EmitRaw["원본 센서 데이터 출력 (collect)"]
@@ -128,15 +128,15 @@ flowchart TD
 ```
 
 #### ① 정규화 일련번호(Canonical Serial ID) 단일 키 룰 매칭 (`processBroadcastElement` & `processElement`)
-사용자나 UI는 룰을 등록할 때 대상 센서를 `"10001"` 또는 `"SN_10001"`로 지정할 수 있습니다.
+사용자나 UI는 룰을 등록할 때 대상 센서를 `"10001"` 또는 `"P_10001"`(하위 호환: `"SN_10001"`)로 지정할 수 있습니다.
 - `processBroadcastElement`에서 `ruleEngineService.validateOnce(rule.getExpression())`로 수식을 사전 검증한 뒤, `rule.canonicalTargetSerialId()`를 통해 정규화된 단일 키(`"10001"`) 하나로 `RULE_STATE_DESCRIPTOR`(`BroadcastState`)에 저장합니다 (중복 키 이중 적재 제거).
-- `processElement`에서 유입된 센서 ID가 `"10001"`이든 `"SN_10001"`이든 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 정규화하여 즉각 $O(1)$로 매핑 룰을 조회합니다.
+- `processElement`에서 유입된 센서 ID가 `"10001"`이든 `"P_10001"`(또는 `"SN_10001"`)이든 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 정규화하여 즉각 $O(1)$로 매핑 룰을 조회합니다.
 
 #### ② 파생 수식 센서 일련번호 방출 (`DynamicRule.resolveOutputSensorId`)
 `rule.resolveOutputSensorId(value.getSensorId())`를 통해 룰 정의에 `derivedSensorId`가 지정되어 있을 경우(예: `"10201"`) 해당 일련번호로 방출하고, 미지정 시 기존 호환성을 위해 `sensorId + "_derived"`로 방출합니다.
 
 #### ③ 단일 일련번호 변수 자동 바인딩 및 `RuleEngineService.evaluatePoint` 위임
-- `SensorSerialResolver.bindSerialIdentifiers(env, value.getSensorId(), value.getValue())`를 호출하여 `env.put("value", ...)` 외에도 `"10001"`과 `"SN_10001"`을 양방향 바인딩하므로, 수식 내에서 `SN_10001 * 1.8 + 32.0` 또는 `10001 * 1.8 + 32.0` 형태로 직접 참조할 수 있습니다.
+- `SensorSerialResolver.bindSerialIdentifiers(env, value.getSensorId(), value.getValue())`를 호출하여 `env.put("value", ...)` 외에도 `"10001"`과 `"P_10001"`(하위 호환 `"SN_10001"`)을 양방향 바인딩하므로, 수식 내에서 `P_10001 * 1.8 + 32.0` (또는 `SN_10001 * 1.8 + 32.0`, `10001 * 1.8 + 32.0`) 형태로 직접 참조할 수 있습니다.
 - `RuleEngineService.evaluatePoint(rule.getExpression(), env, windowData)`가 `AbstractWindowFunction.bindWindowHistory`를 내부에서 캡슐화하여 슬라이딩 윈도우 데이터 바인딩 및 JIT 평가를 일원화합니다.
 
 #### ④ 백엔드 실시간 룰 발행 및 인메모리 일괄 동기화 (Bulk Sync)
@@ -153,7 +153,7 @@ flowchart TD
   - 카프카 헤더/바디 역직렬화 및 단일 일련번호 매핑 검증.
   - `DEVICE-001`과 `DEVICE-002`가 동일한 `sensorIndex: 0`을 전송할 때 각각 `10001`, `10101`로 충돌 없이 분리 매핑됨을 검증.
 * [`RuleBroadcastProcessFunctionTest.java`](file:///var/home/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/RuleBroadcastProcessFunctionTest.java):
-  - 단일 일련번호 `SN_10001`에 대한 룰 브로드캐스트와 실시간 스트림 센서(`10001`)의 매칭 평가 검증.
+  - 단일 일련번호 `P_10001`(및 레거시 `SN_10001`)에 대한 룰 브로드캐스트와 실시간 스트림 센서(`10001`)의 매칭 평가 검증.
   - 파생 센서 `derivedSensorId: 10201`이 정상 계산되어 방출됨을 검증.
   - `testBulkDynamicRuleBroadcastAndEvaluation`: 복수 개의 동적 룰 브로드캐스트 유입 시 각 센서별로 독립 수식 평가 및 파생 센서 방출 검증 통과.
 

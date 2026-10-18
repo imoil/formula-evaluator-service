@@ -3,26 +3,26 @@ import { generateSensorTimeSeries } from './sensorDataGenerator'
 import { CircularBuffer } from './circularBuffer'
 
 /**
- * Normalize sensor identifier: strips 'SN_' prefix when followed by digits ('SN_10001' -> '10001')
+ * Normalize sensor identifier: strips 'P_' or 'SN_' prefix when followed by digits ('P_10001' -> '10001')
  */
 export function toCanonicalSensorId(rawId: string): string {
   const trimmed = rawId.trim()
-  if (/^SN_\d+$/i.test(trimmed)) {
-    return trimmed.substring(3)
+  if (/^(?:P_|SN_)\d+$/i.test(trimmed)) {
+    return trimmed.replace(/^(?:P_|SN_)/i, '')
   }
   return trimmed
 }
 
 /**
- * Return prefixed or canonical serial identifier ('10001' -> 'SN_10001', 'SN_10001' -> '10001'), or null if not a serial number
+ * Return prefixed or canonical serial identifier ('10001' -> 'P_10001', 'P_10001' -> '10001'), or null if not a serial number
  */
 export function toPrefixedOrCanonicalSensorId(rawId: string): string | null {
   const trimmed = rawId.trim()
-  if (/^SN_\d+$/i.test(trimmed)) {
-    return trimmed.substring(3)
+  if (/^(?:P_|SN_)\d+$/i.test(trimmed)) {
+    return trimmed.replace(/^(?:P_|SN_)/i, '')
   }
   if (/^\d+$/.test(trimmed)) {
-    return `SN_${trimmed}`
+    return `P_${trimmed}`
   }
   return null
 }
@@ -32,7 +32,7 @@ export function toPrefixedOrCanonicalSensorId(rawId: string): string | null {
  */
 export function extractPrimarySensorId(expressionStr?: string | null, defaultSensorId = '10001'): string {
   if (!expressionStr) return defaultSensorId
-  const serialMatch = expressionStr.match(/\b(?:SN_)?(\d{4,6})\b/)
+  const serialMatch = expressionStr.match(/\b(?:P_|SN_)?(\d{4,6})\b/)
   if (serialMatch) {
     return serialMatch[1]
   }
@@ -83,6 +83,7 @@ export function extractReferences(
   const serialFormulaMap = new Map<string, string>()
   for (const f of allFormulas) {
     if (f.serialNumber) {
+      serialFormulaMap.set(`P_${f.serialNumber}`, f.id)
       serialFormulaMap.set(`SN_${f.serialNumber}`, f.id)
     }
   }
@@ -97,8 +98,8 @@ export function extractReferences(
   for (const token of tokens) {
     if (reservedWords.has(token)) continue
 
-    // Detect unified serial sensor tokens (e.g. SN_10001) or named sensor tokens (e.g. sensor_000, temp_sensor_1)
-    if (/^SN_\d+$/i.test(token)) {
+    // Detect unified serial sensor tokens (e.g. P_10001, SN_10001) or named sensor tokens (e.g. sensor_000, temp_sensor_1)
+    if (/^(?:P_|SN_)\d+$/i.test(token)) {
       const upperToken = token.toUpperCase()
       if (serialFormulaMap.has(upperToken)) {
         formulaIds.add(serialFormulaMap.get(upperToken)!)
@@ -443,6 +444,12 @@ export function simulateFormula(
       if (counterpartId) {
         ctx[counterpartId] = val
       }
+      const canonical = toCanonicalSensorId(sId)
+      if (/^\d+$/.test(canonical)) {
+        ctx[canonical] = val
+        ctx[`P_${canonical}`] = val
+        ctx[`SN_${canonical}`] = val
+      }
 
       // Update sliding window buffer
       const buf = sensorBufferList[i]
@@ -480,6 +487,7 @@ export function simulateFormula(
           const numRes = typeof res === 'number' && !isNaN(res) ? res : 0
           ctx[formulaId] = numRes
           if (fDef?.serialNumber) {
+            ctx[`P_${fDef.serialNumber}`] = numRes
             ctx[`SN_${fDef.serialNumber}`] = numRes
           }
           intermediateValues[formulaId] = numRes
@@ -490,6 +498,7 @@ export function simulateFormula(
         } catch {
           ctx[formulaId] = 0
           if (fDef?.serialNumber) {
+            ctx[`P_${fDef.serialNumber}`] = 0
             ctx[`SN_${fDef.serialNumber}`] = 0
           }
           intermediateValues[formulaId] = 0

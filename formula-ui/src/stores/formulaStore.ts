@@ -13,7 +13,7 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     name: 'Exhaust Temp (°F)',
     category: 'Thermal',
     targetSensor: '10001',
-    expression: 'SN_10001 * 1.8 + 32',
+    expression: 'P_10001 * 1.8 + 32',
     description: 'Converts primary temperature sensor from Celsius to Fahrenheit.',
     tags: ['Conversion', 'Thermal'],
     createdAt: '2026-10-09 10:00:00',
@@ -35,7 +35,7 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     name: 'Hydraulic Differential Pressure',
     category: 'Pressure',
     targetSensor: '10002',
-    expression: 'abs(SN_10002 - SN_10004)',
+    expression: 'abs(P_10002 - P_10004)',
     description: 'Absolute difference between discharge pressure (#10002) and intake pressure (#10004).',
     tags: ['Delta', 'Hydraulics'],
     createdAt: '2026-10-09 10:10:00',
@@ -81,7 +81,7 @@ export function mapRegistrySensorToFormula(sensor: SensorRegistryItem): FormulaD
     targetSensor,
     expression: sensor.formulaExpression || 'value * 1.0',
     description: sensor.description || `Oracle Registered Formula Sensor #${sensor.serialNumber}`,
-    tags: ['Registry', `SN_${sensor.serialNumber}`],
+    tags: ['Registry', `P_${sensor.serialNumber}`],
     createdAt: sensor.createdAt || new Date().toISOString(),
     updatedAt: sensor.updatedAt || new Date().toISOString(),
   }
@@ -151,6 +151,7 @@ export const useFormulaStore = defineStore('formula', () => {
       }
       if (f.serialNumber) {
         map.set(String(f.serialNumber), f)
+        map.set(`P_${f.serialNumber}`, f)
         map.set(`SN_${f.serialNumber}`, f)
       }
     }
@@ -284,6 +285,7 @@ export const useFormulaStore = defineStore('formula', () => {
 
   function ensureFormulaForRegistrySensor(sensor: SensorRegistryItem): FormulaDefinition {
     const existing =
+      getFormulaById(`P_${sensor.serialNumber}`) ||
       getFormulaById(`SN_${sensor.serialNumber}`) ||
       getFormulaById(sensor.sensorCode) ||
       getFormulaById(toCleanFormulaId(sensor.sensorCode))

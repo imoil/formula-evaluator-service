@@ -90,7 +90,7 @@ class OnDemandEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("실제 RuleEngineService와 결합 시 SN_10001 일련번호 참조 수식이 온디맨드 경로에서 정상 평가된다")
+    @DisplayName("실제 RuleEngineService와 결합 시 P_10001 및 레거시 SN_10001 일련번호 참조 수식이 온디맨드 경로에서 정상 평가된다")
     void testEvaluateSerialPrefixedFormulaWithRealEngine() {
         OnDemandEvaluationService realEvaluationService =
                 new OnDemandEvaluationService(timeSeriesDataSourceAdapter, new RuleEngineService());
@@ -103,11 +103,19 @@ class OnDemandEvaluationServiceTest {
                 .willReturn(List.of(d1, d2));
 
         List<SensorData> results = realEvaluationService.evaluateOverTimeRange(
-                "10001", "SN_10001 * 1.5 + window_avg(2)", "start", "end", "1s"
+                "10001", "P_10001 * 1.5 + window_avg(2)", "start", "end", "1s"
         );
 
         assertThat(results).hasSize(2);
         assertThat(results.get(0).getValue()).isEqualTo(50.0); // 20 * 1.5 + 20
         assertThat(results.get(1).getValue()).isEqualTo(70.0); // 30 * 1.5 + 25
+
+        // 하위 호환성: SN_10001 레거시 수식도 정상 평가
+        List<SensorData> legacyResults = realEvaluationService.evaluateOverTimeRange(
+                "10001", "SN_10001 * 1.5 + window_avg(2)", "start", "end", "1s"
+        );
+        assertThat(legacyResults).hasSize(2);
+        assertThat(legacyResults.get(0).getValue()).isEqualTo(50.0);
+        assertThat(legacyResults.get(1).getValue()).isEqualTo(70.0);
     }
 }

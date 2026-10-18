@@ -23,7 +23,7 @@ CREATE TABLE SENSOR_REGISTRY (
     UNIT                   VARCHAR2(32),
     DEVICE_ID              VARCHAR2(64),          -- IoT Device ID (e.g. 'DEVICE-001')
     DEVICE_SENSOR_INDEX    NUMBER(10),            -- Local sensorIndex within device (0 ~ 999)
-    FORMULA_EXPRESSION     VARCHAR2(1000),        -- Formula Expression (e.g. 'SN_10001 * 1.8 + 32')
+    FORMULA_EXPRESSION     VARCHAR2(1000),        -- Formula Expression (e.g. 'P_10001 * 1.8 + 32')
     DESCRIPTION            VARCHAR2(500),
     STATUS                 VARCHAR2(20) DEFAULT 'ACTIVE' NOT NULL,
     CREATED_AT             TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,

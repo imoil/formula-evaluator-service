@@ -29,7 +29,7 @@ class SensorSerialResolverTest {
         assertThat(resolver.resolveSerialNumber("DEVICE-002", 0)).isEqualTo(10101L);
 
         assertThat(resolver.resolveSensorId("DEVICE-001", 0)).isEqualTo("10001");
-        assertThat(resolver.resolvePrefixedSensorId("DEVICE-001", 0)).isEqualTo("SN_10001");
+        assertThat(resolver.resolvePrefixedSensorId("DEVICE-001", 0)).isEqualTo("P_10001");
     }
 
     @Test

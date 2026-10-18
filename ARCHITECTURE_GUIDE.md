@@ -406,9 +406,9 @@ sequenceDiagram
     end
     participant QuestDB as QuestDB 10.0.1 (ILP Socket)
 
-    Admin->>Kafka: 동적 룰 발행 (topic: rule-data, targetSensorId="SN_10001", derivedSensorId="10201")
+    Admin->>Kafka: 동적 룰 발행 (topic: rule-data, targetSensorId="P_10001", derivedSensorId="10201")
     Kafka-->>BroadcastFn: 모든 TaskManager에 룰 브로드캐스트 전파
-    BroadcastFn->>BroadcastFn: targetSensorId 양방향 등록 ("SN_10001" & "10001")
+    BroadcastFn->>BroadcastFn: targetSensorId 양방향 등록 ("P_10001" & "10001")
 
     Emulator->>Kafka: 원본 배치 전송 (Header: deviceId='DEVICE-001', Body: [{sensorIndex: 0, value: 45.0}])
     Kafka-->>Consumer: 레코드 수신 (ConsumerRecord)
@@ -545,8 +545,8 @@ public class WindowRateFunction extends AbstractWindowFunction {
   4. Flink DataSource에는 이미 일련번호가 부여된 `SensorData`가 방출되므로 다운스트림 연산자 전체가 단일 센서 체계로 안전하게 구동.
 
 ### 8.4 온디멘드 및 실시간 평가의 완전한 일원화
-* **온디멘드 경로**: [`MockSensorCatalogService`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-api/src/main/java/com/imoil/formula/service/MockSensorCatalogService.java)가 Oracle DB를 조회하여 일련번호(`10001`, `SN_10001`) 기반의 1시간 시계열 데이터를 제공.
-* **실시간 Flink 경로**: [`RuleBroadcastProcessFunction`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/main/java/com/imoil/formula/flink/RuleBroadcastProcessFunction.java)에서 `10001`과 `SN_10001`을 양방향 매칭하고, 수식 연산 결과를 수식 센서의 일련번호(`rule.derivedSensorId`)로 QuestDB에 적재.
+* **온디멘드 경로**: [`MockSensorCatalogService`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-api/src/main/java/com/imoil/formula/service/MockSensorCatalogService.java)가 Oracle DB를 조회하여 일련번호(`10001`, `P_10001`, 하위 호환 `SN_10001`) 기반의 1시간 시계열 데이터를 제공.
+* **실시간 Flink 경로**: [`RuleBroadcastProcessFunction`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/main/java/com/imoil/formula/flink/RuleBroadcastProcessFunction.java)에서 `10001`과 `P_10001`(하위 호환 `SN_10001`)을 양방향 매칭하고, 수식 연산 결과를 수식 센서의 일련번호(`rule.derivedSensorId`)로 QuestDB에 적재.
 * **프론트엔드 UI**: [`SensorManagement.vue`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-ui/src/components/SensorManagement.vue)에서 센서를 관리하고, **"⚡ On-Demand Simulation"** 클릭 한 번으로 시뮬레이터 탭으로 전환되어 즉시 파형과 연산 결과를 확인할 수 있습니다.
 
 ### 8.5 관리자 동적 룰 발행 및 Flink 인메모리 일괄 동기화 (Bulk Sync)

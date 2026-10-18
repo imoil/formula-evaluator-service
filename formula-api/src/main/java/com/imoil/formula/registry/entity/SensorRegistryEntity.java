@@ -66,7 +66,7 @@ public class SensorRegistryEntity {
     @Column(name = "DEVICE_SENSOR_INDEX")
     private Integer deviceSensorIndex;
 
-    /** 수식 센서 평가식 (수식 센서의 경우 필수, 예: 'SN_10001 * 0.8 + SN_10002 * 0.2') */
+    /** 수식 센서 평가식 (수식 센서의 경우 필수, 예: 'P_10001 * 0.8 + P_10002 * 0.2') */
     @Column(name = "FORMULA_EXPRESSION", length = 1000)
     private String formulaExpression;
 

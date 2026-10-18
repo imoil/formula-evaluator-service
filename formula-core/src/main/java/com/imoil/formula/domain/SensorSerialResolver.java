@@ -20,7 +20,7 @@ public class SensorSerialResolver implements Serializable {
 
     private static final Pattern DEVICE_NUMBER_PATTERN = Pattern.compile(".*?(\\d+)$");
     private static final Pattern DIGITS_ONLY_PATTERN = Pattern.compile("^\\d+$");
-    private static final Pattern SENSOR_REF_PATTERN = Pattern.compile("\\b(?:SN_)?(\\d{4,6})\\b");
+    private static final Pattern SENSOR_REF_PATTERN = Pattern.compile("\\b(?:P_|SN_)?(\\d{4,6})\\b");
 
     /** 기본 시작 일련번호 */
     public static final long DEFAULT_BASE_SERIAL = 10001L;
@@ -28,8 +28,11 @@ public class SensorSerialResolver implements Serializable {
     /** 장치별 센서 분할 오프셋 (미등록 폴백 시 장치별로 1000개 단위 격리) */
     public static final long DEFAULT_DEVICE_STRIDE = 1000L;
 
-    /** 접두사 상수 */
-    public static final String SERIAL_PREFIX = "SN_";
+    /** 기본 접두사 상수 (Parameter / Point 통일) */
+    public static final String SERIAL_PREFIX = "P_";
+
+    /** 하위 호환성을 위한 레거시 접두사 */
+    public static final String LEGACY_SERIAL_PREFIX = "SN_";
 
     /** 등록된 장치+센서 인덱스 -> 일련번호 매핑 테이블 */
     private final ConcurrentHashMap<DeviceSensorKey, Long> registryMappings = new ConcurrentHashMap<>();
@@ -114,14 +117,14 @@ public class SensorSerialResolver implements Serializable {
     }
 
     /**
-     * 접두사 형식의 식별자 반환 ("SN_10001")
+     * 접두사 형식의 식별자 반환 ("P_10001")
      */
     public String resolvePrefixedSensorId(String deviceId, int sensorIndex) {
         return SERIAL_PREFIX + resolveSerialNumber(deviceId, sensorIndex);
     }
 
     /**
-     * 임의의 센서 식별자("10001", "SN_10001", "DEVICE-001#0", "DEVICE-001:0")를
+     * 임의의 센서 식별자("10001", "P_10001", "SN_10001", "DEVICE-001#0", "DEVICE-001:0")를
      * 단일 일련번호 체계로 보정/변환합니다.
      */
     public String resolveOrKeepSensorId(String rawSensorId) {
@@ -129,7 +132,7 @@ public class SensorSerialResolver implements Serializable {
             return null;
         }
         String sid = rawSensorId.trim();
-        if (DIGITS_ONLY_PATTERN.matcher(sid).matches() || sid.startsWith(SERIAL_PREFIX)) {
+        if (DIGITS_ONLY_PATTERN.matcher(sid).matches() || sid.startsWith(SERIAL_PREFIX) || sid.startsWith(LEGACY_SERIAL_PREFIX)) {
             return sid;
         }
         return DeviceSensorKey.tryParseComposite(sid)
@@ -151,12 +154,17 @@ public class SensorSerialResolver implements Serializable {
             if (DIGITS_ONLY_PATTERN.matcher(stripped).matches()) {
                 return stripped;
             }
+        } else if (trimmed.startsWith(LEGACY_SERIAL_PREFIX)) {
+            String stripped = trimmed.substring(LEGACY_SERIAL_PREFIX.length());
+            if (DIGITS_ONLY_PATTERN.matcher(stripped).matches()) {
+                return stripped;
+            }
         }
         return trimmed;
     }
 
     /**
-     * "10001" 또는 "SN_10001" 형태의 식별자에 대응하는 접두사/정규 일련번호("SN_10001" 또는 "10001")를 반환합니다.
+     * "10001", "P_10001" 또는 "SN_10001" 형태의 식별자에 대응하는 접두사/정규 일련번호("P_10001" 또는 "10001")를 반환합니다.
      * 일련번호 체계가 아닌 경우 null을 반환합니다.
      */
     public static String toPrefixedOrCanonicalSerialId(String sensorId) {
@@ -168,6 +176,10 @@ public class SensorSerialResolver implements Serializable {
             String stripped = trimmed.substring(SERIAL_PREFIX.length());
             return DIGITS_ONLY_PATTERN.matcher(stripped).matches() ? stripped : null;
         }
+        if (trimmed.startsWith(LEGACY_SERIAL_PREFIX)) {
+            String stripped = trimmed.substring(LEGACY_SERIAL_PREFIX.length());
+            return DIGITS_ONLY_PATTERN.matcher(stripped).matches() ? stripped : null;
+        }
         if (DIGITS_ONLY_PATTERN.matcher(trimmed).matches()) {
             return SERIAL_PREFIX + trimmed;
         }
@@ -175,7 +187,7 @@ public class SensorSerialResolver implements Serializable {
     }
 
     /**
-     * "10001" 또는 "SN_10001" 문자열로부터 숫자형 일련번호(Long)를 추출합니다.
+     * "10001", "P_10001" 또는 "SN_10001" 문자열로부터 숫자형 일련번호(Long)를 추출합니다.
      */
     public static java.util.Optional<Long> tryParseSerialNumber(String sensorId) {
         if (sensorId == null) {
@@ -192,7 +204,7 @@ public class SensorSerialResolver implements Serializable {
     }
 
     /**
-     * 수식 평가 환경(env)에 센서 식별자와 일련번호 양방향 표현("10001", "SN_10001")을 바인딩합니다.
+     * 수식 평가 환경(env)에 센서 식별자와 일련번호 표현("10001", "P_10001", 하위 호환 "SN_10001")을 바인딩합니다.
      */
     public static void bindSerialIdentifiers(Map<String, Object> env, String sensorId, Object value) {
         if (env == null || sensorId == null || sensorId.isBlank()) {
@@ -203,10 +215,16 @@ public class SensorSerialResolver implements Serializable {
         if (counterpart != null) {
             env.put(counterpart, value);
         }
+        String canonical = toCanonicalSerialId(sensorId);
+        if (canonical != null && DIGITS_ONLY_PATTERN.matcher(canonical).matches()) {
+            env.put(canonical, value);
+            env.put(SERIAL_PREFIX + canonical, value);
+            env.put(LEGACY_SERIAL_PREFIX + canonical, value);
+        }
     }
 
     /**
-     * 수식 표현식에서 첫 번째 참조 센서 일련번호(SN_10001 또는 10001)를 추출하고,
+     * 수식 표현식에서 첫 번째 참조 센서 일련번호(P_10001, SN_10001 또는 10001)를 추출하고,
      * 없을 경우 fallbackDeviceId 또는 기본 일련번호("10001")를 반환합니다.
      */
     public static String extractTargetSensorId(String expression, String fallbackDeviceId) {

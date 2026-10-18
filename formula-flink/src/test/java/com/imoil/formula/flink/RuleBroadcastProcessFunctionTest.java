@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RuleBroadcastProcessFunctionTest {
 
     @Test
-    @DisplayName("단일 일련번호 체계(10001 / SN_10001)로 브로드캐스트된 룰과 실시간 스트림 센서가 정상 매칭되어 평가되어야 한다")
+    @DisplayName("단일 일련번호 체계(10001 / P_10001)로 브로드캐스트된 룰과 실시간 스트림 센서가 정상 매칭되어 평가되어야 한다")
     void testRuleEvaluationWithUnifiedSerialNumber() throws Exception {
         RuleBroadcastProcessFunction function = new RuleBroadcastProcessFunction(30);
 
@@ -27,11 +27,11 @@ class RuleBroadcastProcessFunctionTest {
 
         harness.open();
 
-        // 1. 단일 일련번호 10001에 대한 실시간 수식 룰 브로드캐스트 ("SN_10001" 타깃)
+        // 1. 단일 일련번호 10001에 대한 실시간 수식 룰 브로드캐스트 ("P_10001" 타깃)
         //    파생 수식 센서 일련번호로 "10201" 지정
         DynamicRule rule = DynamicRule.builder()
                 .ruleId("rule_eff_10201")
-                .targetSensorId("SN_10001")
+                .targetSensorId("P_10001")
                 .expression("value * 2.0 + 10.0")
                 .derivedSensorId("10201")
                 .usesWindow(false)
@@ -126,8 +126,8 @@ class RuleBroadcastProcessFunctionTest {
         // 1. Bulk sync: 2개의 룰 브로드캐스트 유입 (10001: 화씨 변환, 10002: 압력 보정)
         DynamicRule rule1 = DynamicRule.builder()
                 .ruleId("rule_10001")
-                .targetSensorId("SN_10001")
-                .expression("SN_10001 * 1.8 + 32.0")
+                .targetSensorId("P_10001")
+                .expression("P_10001 * 1.8 + 32.0")
                 .derivedSensorId("10201")
                 .usesWindow(false)
                 .build();
@@ -177,6 +177,48 @@ class RuleBroadcastProcessFunctionTest {
 
         SensorData raw2 = output.get(3);
         assertThat(raw2.getSensorId()).isEqualTo("10002");
+
+        harness.close();
+    }
+
+    @Test
+    @DisplayName("하위 호환성: 레거시 SN_10001 접두사 룰 및 표현식도 Flink 스트림에서 정상 매칭 및 평가되어야 한다")
+    void testLegacyRuleEvaluationWithSnPrefix() throws Exception {
+        RuleBroadcastProcessFunction function = new RuleBroadcastProcessFunction(30);
+
+        var harness = ProcessFunctionTestHarnesses.forKeyedBroadcastProcessFunction(
+                function,
+                SensorData::getSensorId,
+                BasicTypeInfo.STRING_TYPE_INFO,
+                RuleBroadcastProcessFunction.RULE_STATE_DESCRIPTOR
+        );
+
+        harness.open();
+
+        DynamicRule legacyRule = DynamicRule.builder()
+                .ruleId("rule_legacy_10001")
+                .targetSensorId("SN_10001")
+                .expression("SN_10001 * 1.8 + 32.0")
+                .derivedSensorId("10201")
+                .usesWindow(false)
+                .build();
+
+        harness.processBroadcastElement(legacyRule, 1000L);
+
+        SensorData rawSensorData = SensorData.builder()
+                .sensorId("10001")
+                .timestamp(1005L)
+                .value(25.0)
+                .state(0)
+                .build();
+
+        harness.processElement(rawSensorData, 1005L);
+
+        List<SensorData> output = harness.extractOutputValues();
+        assertThat(output).hasSize(2);
+        SensorData derived = output.get(0);
+        assertThat(derived.getSensorId()).isEqualTo("10201");
+        assertThat(derived.getValue()).isEqualTo(77.0);
 
         harness.close();
     }

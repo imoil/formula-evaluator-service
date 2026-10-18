@@ -93,7 +93,7 @@ describe('Unified Sensor Registry & On-Demand UI Integration', () => {
       sensorType: 'FORMULA',
       category: 'Thermal',
       unit: 'idx',
-      formulaExpression: 'TEMP_FAHRENHEIT * 0.5 + SN_10001',
+      formulaExpression: 'TEMP_FAHRENHEIT * 0.5 + P_10001',
       description: 'Derived formula using both sub-formula code and serial sensor',
     });
 

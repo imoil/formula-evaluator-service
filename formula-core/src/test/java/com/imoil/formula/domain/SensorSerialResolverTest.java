@@ -20,9 +20,11 @@ class SensorSerialResolverTest {
 
     @Test
     void testSerialIdConversionsFollowGlossary() {
+        assertEquals("10001", SensorSerialResolver.toCanonicalSerialId("P_10001"));
         assertEquals("10001", SensorSerialResolver.toCanonicalSerialId("SN_10001"));
         assertEquals("10001", SensorSerialResolver.toCanonicalSerialId("10001"));
-        assertEquals("SN_10001", SensorSerialResolver.toPrefixedOrCanonicalSerialId("10001"));
+        assertEquals("P_10001", SensorSerialResolver.toPrefixedOrCanonicalSerialId("10001"));
+        assertEquals("10001", SensorSerialResolver.toPrefixedOrCanonicalSerialId("P_10001"));
         assertEquals("10001", SensorSerialResolver.toPrefixedOrCanonicalSerialId("SN_10001"));
         assertNull(SensorSerialResolver.toPrefixedOrCanonicalSerialId("TEMP_RAW"));
     }
@@ -30,14 +32,22 @@ class SensorSerialResolverTest {
     @Test
     void testBindSerialIdentifiersPopulatesBothCanonicalAndPrefixedKeys() {
         Map<String, Object> env = new HashMap<>();
-        SensorSerialResolver.bindSerialIdentifiers(env, "SN_10001", 42.5);
+        SensorSerialResolver.bindSerialIdentifiers(env, "P_10001", 42.5);
 
         assertEquals(42.5, env.get("10001"));
+        assertEquals(42.5, env.get("P_10001"));
         assertEquals(42.5, env.get("SN_10001"));
+
+        Map<String, Object> legacyEnv = new HashMap<>();
+        SensorSerialResolver.bindSerialIdentifiers(legacyEnv, "SN_10001", 88.0);
+        assertEquals(88.0, legacyEnv.get("10001"));
+        assertEquals(88.0, legacyEnv.get("P_10001"));
+        assertEquals(88.0, legacyEnv.get("SN_10001"));
     }
 
     @Test
     void testExtractTargetSensorId() {
+        assertEquals("P_10001", SensorSerialResolver.extractTargetSensorId("P_10001 * 1.8 + 32", "10201"));
         assertEquals("SN_10001", SensorSerialResolver.extractTargetSensorId("SN_10001 * 1.8 + 32", "10201"));
         assertEquals("10002", SensorSerialResolver.extractTargetSensorId("window_avg(10) + 10002", "10202"));
         assertEquals("10203", SensorSerialResolver.extractTargetSensorId("value * 2.0", "10203"));
@@ -59,13 +69,22 @@ class SensorSerialResolverTest {
     void testDynamicRuleCanonicalTargetAndOutputResolution() {
         DynamicRule rule = DynamicRule.builder()
                 .ruleId("r1")
-                .targetSensorId("SN_10001")
+                .targetSensorId("P_10001")
                 .expression("value * 2")
-                .derivedSensorId("SN_10201")
+                .derivedSensorId("P_10201")
                 .build();
 
         assertEquals("10001", rule.canonicalTargetSerialId());
         assertEquals("10201", rule.resolveOutputSensorId("10001"));
+
+        DynamicRule legacyRule = DynamicRule.builder()
+                .ruleId("r_legacy")
+                .targetSensorId("SN_10001")
+                .expression("value * 2")
+                .derivedSensorId("SN_10201")
+                .build();
+        assertEquals("10001", legacyRule.canonicalTargetSerialId());
+        assertEquals("10201", legacyRule.resolveOutputSensorId("10001"));
 
         DynamicRule fallbackRule = DynamicRule.builder()
                 .ruleId("r2")

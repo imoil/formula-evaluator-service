@@ -51,13 +51,13 @@ describe('Sensor Registry Pinia Store', () => {
       sensorType: 'FORMULA',
       category: 'Efficiency',
       unit: 'kW/(m3/h)',
-      formulaExpression: 'SN_10001 * 0.5 + SN_10002',
+      formulaExpression: 'P_10001 * 0.5 + P_10002',
       description: 'Calculated efficiency ratio',
     });
 
     expect(created.serialNumber).toBeDefined();
     expect(created.sensorType).toBe('FORMULA');
-    expect(created.formulaExpression).toBe('SN_10001 * 0.5 + SN_10002');
+    expect(created.formulaExpression).toBe('P_10001 * 0.5 + P_10002');
   });
 
   it('updates sensor details properly', async () => {
@@ -122,7 +122,7 @@ describe('Sensor Registry Pinia Store', () => {
     expect(store.filteredSensors.length).toBe(1);
     expect(store.filteredSensors[0].serialNumber).toBe(10002);
 
-    // Search Query matching serial number (also matches formulas referencing SN_10002)
+    // Search Query matching serial number (also matches formulas referencing P_10002)
     store.searchQuery = '10002';
     expect(store.filteredSensors.length).toBe(2);
     expect(store.filteredSensors.some((s) => s.serialNumber === 10002)).toBe(true);

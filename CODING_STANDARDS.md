@@ -6,12 +6,12 @@
 
 ## 1. 도메인 어휘 및 센서 일련번호 규약 ([`GLOSSARY.md`](GLOSSARY.md))
 
-* **용어 일관성**: 식별자 변환·바인딩 메서드와 변수명은 [`GLOSSARY.md`](GLOSSARY.md)에 정의된 **Canonical Serial ID**(`"10001"`)와 **Prefixed Serial ID**(`"SN_10001"`) 구분을 엄격히 따릅니다.
+* **용어 일관성**: 식별자 변환·바인딩 메서드와 변수명은 [`GLOSSARY.md`](GLOSSARY.md)에 정의된 **Canonical Serial ID**(`"10001"`)와 **Prefixed Serial ID**(`"P_10001"`, 하위 호환: `"SN_10001"`) 구분을 엄격히 따릅니다.
   - 정규 일련번호 변환: `toCanonicalSerialId`
   - 접두사 일련번호 변환: `toPrefixedSerialId`, `toPrefixedOrCanonicalSerialId`
   - 평가 환경 양방향 바인딩: `SensorSerialResolver.bindSerialIdentifiers(env, sensorId, value)`
 * **단일 정규화 키 상태 관리**:
-  - Flink `BroadcastState`(`RuleBroadcastProcessFunction.RULE_STATE_DESCRIPTOR`)는 반드시 `DynamicRule.canonicalTargetSerialId()`가 반환하는 **단일 정규화 키(`"10001"`)** 하나로만 인덱싱합니다. `"10001"`과 `"SN_10001"`을 중복 저장하지 않습니다.
+  - Flink `BroadcastState`(`RuleBroadcastProcessFunction.RULE_STATE_DESCRIPTOR`)는 반드시 `DynamicRule.canonicalTargetSerialId()`가 반환하는 **단일 정규화 키(`"10001"`)** 하나로만 인덱싱합니다. `"10001"`과 `"P_10001"`을 중복 저장하지 않습니다.
 * **`formula-core` 순수성**:
   - `formula-core`는 프레임워크 및 로거 의존성(`org.springframework.*`, `org.slf4j.*`, `lombok.extern.*`)을 일절 포함하지 않습니다 (`./gradlew :formula-core:verifyPureDomain`에 의해 강제됨).
   - [`DeviceSensorKey`](formula-core/src/main/java/com/imoil/formula/domain/DeviceSensorKey.java)는 생성 및 변경 시점에 `deviceId`를 대문자/트림 정규화하여 `equals`/`hashCode`가 추가 문자열 할당 없이 동작하도록 유지합니다.

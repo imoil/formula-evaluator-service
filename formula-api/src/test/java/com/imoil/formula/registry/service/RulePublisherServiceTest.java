@@ -47,7 +47,7 @@ class RulePublisherServiceTest {
     void testPublishRule() throws Exception {
         DynamicRule rule = DynamicRule.builder()
                 .ruleId("rule_eff_10201")
-                .targetSensorId("SN_10001")
+                .targetSensorId("P_10001")
                 .expression("value * 1.8 + 32.0")
                 .derivedSensorId("10201")
                 .usesWindow(false)
@@ -56,11 +56,11 @@ class RulePublisherServiceTest {
         rulePublisherService.publishRule(rule);
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(kafkaTemplate, times(1)).send(eq("rule-data"), eq("SN_10001"), payloadCaptor.capture());
+        verify(kafkaTemplate, times(1)).send(eq("rule-data"), eq("P_10001"), payloadCaptor.capture());
 
         DynamicRule sentRule = objectMapper.readValue(payloadCaptor.getValue(), DynamicRule.class);
         assertThat(sentRule.getRuleId()).isEqualTo("rule_eff_10201");
-        assertThat(sentRule.getTargetSensorId()).isEqualTo("SN_10001");
+        assertThat(sentRule.getTargetSensorId()).isEqualTo("P_10001");
         assertThat(sentRule.getDerivedSensorId()).isEqualTo("10201");
         assertThat(sentRule.getExpression()).isEqualTo("value * 1.8 + 32.0");
         assertThat(sentRule.isUsesWindow()).isFalse();
@@ -74,7 +74,7 @@ class RulePublisherServiceTest {
                 .sensorCode("FML-PUMP-EFF")
                 .sensorName("Pump Efficiency Index")
                 .sensorType(SensorType.FORMULA)
-                .formulaExpression("SN_10001 * 0.8 + window_avg(5)")
+                .formulaExpression("P_10001 * 0.8 + window_avg(5)")
                 .status(SensorStatus.ACTIVE)
                 .build();
 
@@ -82,11 +82,11 @@ class RulePublisherServiceTest {
 
         assertThat(published).isNotNull();
         assertThat(published.getDerivedSensorId()).isEqualTo("10005");
-        assertThat(published.getTargetSensorId()).isEqualTo("SN_10001");
+        assertThat(published.getTargetSensorId()).isEqualTo("P_10001");
         assertThat(published.getRuleId()).isEqualTo("rule_FML-PUMP-EFF");
         assertThat(published.isUsesWindow()).isTrue();
 
-        verify(kafkaTemplate, times(1)).send(eq("rule-data"), eq("SN_10001"), anyString());
+        verify(kafkaTemplate, times(1)).send(eq("rule-data"), eq("P_10001"), anyString());
     }
 
     @Test
@@ -96,7 +96,7 @@ class RulePublisherServiceTest {
                 .serialNumber(10005L)
                 .sensorCode("FML-01")
                 .sensorType(SensorType.FORMULA)
-                .formulaExpression("SN_10001 * 2.0")
+                .formulaExpression("P_10001 * 2.0")
                 .status(SensorStatus.ACTIVE)
                 .build();
 
@@ -104,7 +104,7 @@ class RulePublisherServiceTest {
                 .serialNumber(10006L)
                 .sensorCode("FML-02")
                 .sensorType(SensorType.FORMULA)
-                .formulaExpression("SN_10002 / 10.0")
+                .formulaExpression("P_10002 / 10.0")
                 .status(SensorStatus.ACTIVE)
                 .build();
 
@@ -118,12 +118,18 @@ class RulePublisherServiceTest {
     }
 
     @Test
-    @DisplayName("수식 내 단일 일련번호 체계(SN_10002 또는 10002)를 올바르게 resolve한다")
+    @DisplayName("수식 내 단일 일련번호 체계(P_10002, SN_10002 또는 10002)를 올바르게 resolve한다")
     void testResolveTargetSensorId() {
         SensorRegistryEntity e1 = SensorRegistryEntity.builder()
+                .formulaExpression("P_10002 * 1.5 + 10")
+                .build();
+        assertThat(rulePublisherService.resolveTargetSensorId(e1)).isEqualTo("P_10002");
+
+        // 하위 호환성: SN_ 접두사도 정상 resolve
+        SensorRegistryEntity eLegacy = SensorRegistryEntity.builder()
                 .formulaExpression("SN_10002 * 1.5 + 10")
                 .build();
-        assertThat(rulePublisherService.resolveTargetSensorId(e1)).isEqualTo("SN_10002");
+        assertThat(rulePublisherService.resolveTargetSensorId(eLegacy)).isEqualTo("SN_10002");
 
         SensorRegistryEntity e2 = SensorRegistryEntity.builder()
                 .formulaExpression("10003 - 20")

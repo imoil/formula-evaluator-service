@@ -109,7 +109,7 @@ class SensorRegistryControllerTest {
                 .sensorType(SensorType.FORMULA)
                 .category("Efficiency")
                 .unit("%")
-                .formulaExpression("100 * (SN_10001 - SN_10002) / SN_10001")
+                .formulaExpression("100 * (P_10001 - P_10002) / P_10001")
                 .description("Formula calculated from thermal delta")
                 .build();
 
@@ -119,7 +119,7 @@ class SensorRegistryControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.serialNumber", notNullValue()))
                 .andExpect(jsonPath("$.sensorType", is("FORMULA")))
-                .andExpect(jsonPath("$.formulaExpression", is("100 * (SN_10001 - SN_10002) / SN_10001")));
+                .andExpect(jsonPath("$.formulaExpression", is("100 * (P_10001 - P_10002) / P_10001")));
 
         verify(kafkaTemplate, atLeastOnce()).send(eq("rule-data"), anyString(), anyString());
     }
@@ -204,7 +204,7 @@ class SensorRegistryControllerTest {
                 .sensorType(SensorType.FORMULA)
                 .category("Efficiency")
                 .unit("%")
-                .formulaExpression("SN_10001 * 0.95")
+                .formulaExpression("P_10001 * 0.95")
                 .build();
         registryService.createSensor(request);
 

@@ -208,19 +208,19 @@
     </v-card>
 
     <!-- Sensor Registry Table -->
-    <v-card class="border elevation-0" rounded="lg">
-      <v-table hover density="comfortable">
+    <v-card class="border elevation-0 sensor-table-card" rounded="lg">
+      <v-table hover density="comfortable" class="sensor-registry-table">
         <thead>
           <tr class="bg-surface-variant text-caption font-weight-bold text-uppercase">
-            <th style="width: 110px">Serial No</th>
-            <th>Sensor Code & Name</th>
-            <th style="width: 140px">Type</th>
-            <th style="width: 180px">IoT Device / Target</th>
-            <th>Formula Expression & Dependencies</th>
-            <th style="width: 130px">Category</th>
-            <th style="width: 80px">Unit</th>
-            <th style="width: 100px">Status</th>
-            <th style="width: 170px" class="text-right">Actions</th>
+            <th class="col-serial">Serial No</th>
+            <th class="col-name">Sensor Code & Name</th>
+            <th class="col-type">Type</th>
+            <th class="col-target">IoT Device / Target</th>
+            <th class="col-formula">Formula Expression & Dependencies</th>
+            <th class="col-category">Category</th>
+            <th class="col-unit">Unit</th>
+            <th class="col-status">Status</th>
+            <th class="col-actions text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -232,7 +232,7 @@
           </tr>
           <tr v-for="sensor in store.filteredSensors" :key="sensor.serialNumber">
             <!-- Serial Number -->
-            <td>
+            <td class="col-serial">
               <v-chip
                 size="small"
                 color="primary"
@@ -242,24 +242,31 @@
               >
                 #{{ sensor.serialNumber }}
                 <v-tooltip activator="parent" location="top">
-                  Click to copy Serial Number #{{ sensor.serialNumber }} (SN_{{ sensor.serialNumber }})
+                  Click to copy Serial Number #{{ sensor.serialNumber }} (P_{{ sensor.serialNumber }})
                 </v-tooltip>
               </v-chip>
             </td>
 
             <!-- Code & Name -->
-            <td>
-              <div class="font-weight-medium text-body-2">{{ sensor.sensorName }}</div>
+            <td class="col-name">
+              <div class="font-weight-medium text-body-2 text-truncate" :title="sensor.sensorName">
+                {{ sensor.sensorName }}
+              </div>
               <div class="text-caption text-medium-emphasis font-family-monospace">
                 {{ sensor.sensorCode }}
               </div>
-              <div v-if="sensor.description" class="text-caption text-disabled text-truncate" style="max-width: 260px">
+              <div
+                v-if="sensor.description"
+                class="text-caption text-disabled text-truncate"
+                :title="sensor.description"
+                style="max-width: 240px"
+              >
                 {{ sensor.description }}
               </div>
             </td>
 
             <!-- Type -->
-            <td>
+            <td class="col-type">
               <v-chip
                 size="x-small"
                 :color="sensor.sensorType === 'PHYSICAL' ? 'indigo' : 'teal'"
@@ -274,17 +281,17 @@
             </td>
 
             <!-- Device ID & Device Sensor Index / Formula Target -->
-            <td>
-              <div v-if="sensor.sensorType === 'PHYSICAL'" class="d-flex align-center">
+            <td class="col-target">
+              <div v-if="sensor.sensorType === 'PHYSICAL'" class="d-flex align-center flex-wrap gap-1">
                 <v-icon size="16" color="indigo" class="mr-1">mdi-router-wireless</v-icon>
                 <span class="font-weight-medium text-body-2 mr-1">{{ sensor.deviceId }}</span>
                 <v-chip size="x-small" variant="outlined" color="secondary">
-                  Index #{{ sensor.deviceSensorIndex }}
+                  #{{ sensor.deviceSensorIndex }}
                 </v-chip>
               </div>
               <div v-else class="d-flex flex-column gap-1">
                 <span class="text-caption text-medium-emphasis">
-                  Virtual (Derived: #{{ sensor.serialNumber }})
+                  Virtual (#{{ sensor.serialNumber }})
                 </span>
                 <v-chip
                   size="x-small"
@@ -298,7 +305,7 @@
             </td>
 
             <!-- Formula Expression & Dependency Composition -->
-            <td>
+            <td class="col-formula">
               <div v-if="sensor.sensorType === 'FORMULA'" class="py-1">
                 <div class="formula-code-preview d-flex align-center">
                   <code>{{ sensor.formulaExpression }}</code>
@@ -306,7 +313,7 @@
                     icon="mdi-content-copy"
                     size="x-small"
                     variant="text"
-                    class="ml-1"
+                    class="ml-1 flex-shrink-0"
                     @click="copyExpression(sensor.formulaExpression || '')"
                   />
                 </div>
@@ -354,19 +361,19 @@
             </td>
 
             <!-- Category -->
-            <td>
-              <v-chip size="x-small" variant="text" class="text-capitalize">
+            <td class="col-category">
+              <v-chip size="x-small" variant="text" class="text-capitalize px-1">
                 {{ sensor.category }}
               </v-chip>
             </td>
 
             <!-- Unit -->
-            <td>
+            <td class="col-unit">
               <span class="text-caption font-weight-medium">{{ sensor.unit || '—' }}</span>
             </td>
 
             <!-- Status -->
-            <td>
+            <td class="col-status">
               <v-chip
                 size="x-small"
                 :color="getStatusColor(sensor.status)"
@@ -377,45 +384,61 @@
             </td>
 
             <!-- Actions (Simulate On-Demand, Duplicate, Edit, Delete) -->
-            <td class="text-right">
-              <v-tooltip text="Run On-Demand Telemetry Simulation" location="top">
-                <template #activator="{ props }">
-                  <v-btn
-                    icon="mdi-play-circle-outline"
-                    variant="text"
-                    size="small"
-                    color="success"
-                    v-bind="props"
-                    @click="simulateSensor(sensor)"
-                  />
-                </template>
-              </v-tooltip>
-              <v-tooltip v-if="sensor.sensorType === 'FORMULA'" text="Duplicate Formula Sensor" location="top">
-                <template #activator="{ props }">
-                  <v-btn
-                    icon="mdi-content-copy"
-                    variant="text"
-                    size="small"
-                    color="secondary"
-                    v-bind="props"
-                    @click="duplicateFormula(sensor)"
-                  />
-                </template>
-              </v-tooltip>
-              <v-btn
-                icon="mdi-pencil-outline"
-                variant="text"
-                size="small"
-                color="primary"
-                @click="openEditModal(sensor)"
-              />
-              <v-btn
-                icon="mdi-delete-outline"
-                variant="text"
-                size="small"
-                color="error"
-                @click="openDeleteModal(sensor)"
-              />
+            <td class="col-actions text-right">
+              <div class="d-inline-flex align-center justify-end action-btn-group">
+                <v-tooltip text="Run On-Demand Telemetry Simulation" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      icon="mdi-play-circle-outline"
+                      variant="text"
+                      size="small"
+                      density="compact"
+                      color="success"
+                      v-bind="props"
+                      @click="simulateSensor(sensor)"
+                    />
+                  </template>
+                </v-tooltip>
+                <v-tooltip v-if="sensor.sensorType === 'FORMULA'" text="Duplicate Formula Sensor" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      icon="mdi-content-copy"
+                      variant="text"
+                      size="small"
+                      density="compact"
+                      color="secondary"
+                      v-bind="props"
+                      @click="duplicateFormula(sensor)"
+                    />
+                  </template>
+                </v-tooltip>
+                <v-tooltip text="Edit Sensor" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      icon="mdi-pencil-outline"
+                      variant="text"
+                      size="small"
+                      density="compact"
+                      color="primary"
+                      v-bind="props"
+                      @click="openEditModal(sensor)"
+                    />
+                  </template>
+                </v-tooltip>
+                <v-tooltip text="Delete Sensor" location="top">
+                  <template #activator="{ props }">
+                    <v-btn
+                      icon="mdi-delete-outline"
+                      variant="text"
+                      size="small"
+                      density="compact"
+                      color="error"
+                      v-bind="props"
+                      @click="openDeleteModal(sensor)"
+                    />
+                  </template>
+                </v-tooltip>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -529,7 +552,7 @@
                         variant="outlined"
                         :color="s.sensorType === 'PHYSICAL' ? 'indigo' : 'teal'"
                         class="cursor-pointer"
-                        @click="insertTokenToFormula(s.sensorType === 'FORMULA' ? s.sensorCode : `SN_${s.serialNumber}`)"
+                        @click="insertTokenToFormula(s.sensorType === 'FORMULA' ? s.sensorCode : `P_${s.serialNumber}`)"
                       >
                         #{{ s.serialNumber }} ({{ s.sensorType === 'FORMULA' ? s.sensorCode : s.sensorName.split(' ').slice(-2).join(' ') }})
                       </v-chip>
@@ -558,8 +581,8 @@
 
                   <v-textarea
                     v-model="formFormulaExpression"
-                    label="Formula Expression (Referencing Serial SN_# or Formula Code) *"
-                    placeholder="e.g. SN_10001 * 1.8 + 32.0, window_avg(10), (SN_10002 - SN_10004) / 10"
+                    label="Formula Expression (Referencing Serial P_# or Formula Code) *"
+                    placeholder="e.g. P_10001 * 1.8 + 32.0, window_avg(10), (P_10002 - P_10004) / 10"
                     variant="outlined"
                     density="comfortable"
                     rows="2"
@@ -916,9 +939,9 @@ function validateFormulaInput() {
       .replace(/\b(?:abs|sqrt|round|floor|ceil|min|max|pow|log|sin|cos)\s*\(/g, 'Math.abs(');
     refs.formulaIds.forEach((f) => (dummy = dummy.replaceAll(f, '1')));
     refs.sensorIds.forEach((s) => {
-      dummy = dummy.replaceAll(`SN_${s}`, '1').replaceAll(s, '1');
+      dummy = dummy.replaceAll(`P_${s}`, '1').replaceAll(`SN_${s}`, '1').replaceAll(s, '1');
     });
-    dummy = dummy.replace(/\bSN_\d+\b/gi, '1').replaceAll('value', '1');
+    dummy = dummy.replace(/\b(?:P_|SN_)\d+\b/gi, '1').replaceAll('value', '1');
 
     // eslint-disable-next-line no-new-func
     new Function(`return (${dummy})`);
@@ -935,6 +958,7 @@ function runDryTest() {
     const ctx: Record<string, number> = { value: 50.0 };
     detectedSensorRefs.value.forEach((s) => {
       ctx[s] = 45.5;
+      ctx[`P_${s}`] = 45.5;
       ctx[`SN_${s}`] = 45.5;
     });
     detectedFormulaRefs.value.forEach((f) => {
@@ -978,7 +1002,7 @@ function openCreateModal(type: SensorType = 'FORMULA') {
   formSensorCode.value = '';
   formDevice.value = 'DEVICE-001';
   formDeviceIndex.value = 0;
-  formFormulaExpression.value = type === 'FORMULA' ? 'SN_10001 * 1.5' : '';
+  formFormulaExpression.value = type === 'FORMULA' ? 'P_10001 * 1.5' : '';
   formCategory.value = type === 'PHYSICAL' ? 'Temperature' : 'Efficiency';
   formUnit.value = type === 'PHYSICAL' ? '°C' : '%';
   formDescription.value = '';
@@ -1125,6 +1149,8 @@ onMounted(() => {
   font-size: 0.82rem;
   font-family: 'Consolas', 'Monaco', monospace;
   color: rgb(var(--v-theme-primary));
+  word-break: break-all;
+  white-space: normal;
 }
 
 .cursor-pointer {
@@ -1141,5 +1167,122 @@ onMounted(() => {
 
 .action-buttons-container {
   min-width: 0;
+}
+
+/* Responsive Table Layout */
+.sensor-table-card {
+  width: 100%;
+}
+
+.sensor-registry-table {
+  width: 100%;
+}
+
+.sensor-registry-table :deep(.v-table__wrapper) {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--v-theme-primary), 0.35) transparent;
+}
+
+.sensor-registry-table :deep(.v-table__wrapper)::-webkit-scrollbar {
+  height: 6px;
+}
+
+.sensor-registry-table :deep(.v-table__wrapper)::-webkit-scrollbar-track {
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+  border-radius: 3px;
+}
+
+.sensor-registry-table :deep(.v-table__wrapper)::-webkit-scrollbar-thumb {
+  background: rgba(var(--v-theme-primary), 0.35);
+  border-radius: 3px;
+}
+
+.sensor-registry-table :deep(.v-table__wrapper)::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--v-theme-primary), 0.6);
+}
+
+.sensor-registry-table :deep(table) {
+  width: 100%;
+  min-width: 1020px;
+}
+
+.sensor-registry-table :deep(th),
+.sensor-registry-table :deep(td) {
+  padding: 0 10px !important;
+}
+
+/* Specific column styles */
+.col-serial {
+  width: 85px;
+  min-width: 80px;
+  white-space: nowrap;
+}
+
+.col-name {
+  min-width: 160px;
+  max-width: 250px;
+}
+
+.col-type {
+  width: 120px;
+  min-width: 110px;
+  white-space: nowrap;
+}
+
+.col-target {
+  width: 140px;
+  min-width: 130px;
+}
+
+.col-formula {
+  min-width: 190px;
+}
+
+.col-category {
+  width: 95px;
+  min-width: 85px;
+  white-space: nowrap;
+}
+
+.col-unit {
+  width: 65px;
+  min-width: 55px;
+  white-space: nowrap;
+}
+
+.col-status {
+  width: 85px;
+  min-width: 80px;
+  white-space: nowrap;
+}
+
+.col-actions {
+  width: 150px;
+  min-width: 145px;
+  white-space: nowrap;
+}
+
+/* Sticky Actions Column - stays visible even if window shrinks */
+.sensor-registry-table :deep(th.col-actions),
+.sensor-registry-table :deep(td.col-actions) {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background-color: rgb(var(--v-theme-surface));
+  border-left: 1px solid rgba(var(--v-border-color), 0.12);
+  box-shadow: -4px 0 8px -2px rgba(0, 0, 0, 0.18);
+  padding: 0 12px !important;
+}
+
+.sensor-registry-table :deep(thead th.col-actions) {
+  z-index: 3;
+  background-color: rgb(var(--v-theme-surface-variant));
+  border-left: 1px solid rgba(var(--v-border-color), 0.2);
+}
+
+.action-btn-group {
+  gap: 2px;
+  white-space: nowrap;
 }
 </style>

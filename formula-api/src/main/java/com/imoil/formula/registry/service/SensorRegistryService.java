@@ -101,7 +101,7 @@ public class SensorRegistryService {
                     "Pump Differential Compression Ratio",
                     "Efficiency",
                     "ratio",
-                    "SN_10002 / (SN_10004 + 0.001)",
+                    "P_10002 / (P_10004 + 0.001)",
                     "Calculated formula sensor comparing discharge vs intake pressure using unified serial numbers"
             ),
             new DefaultFormulaSpec(
@@ -109,7 +109,7 @@ public class SensorRegistryService {
                     "Dual-Device Thermal Delta",
                     "Temperature",
                     "°C",
-                    "abs(SN_10001 - SN_10003)",
+                    "abs(P_10001 - P_10003)",
                     "Calculated delta between Device-001 and Device-002 bearing temperatures"
             ),
             new DefaultFormulaSpec(
@@ -117,7 +117,7 @@ public class SensorRegistryService {
                     "Exhaust Temp (°F)",
                     "Temperature",
                     "°F",
-                    "SN_10001 * 1.8 + 32.0",
+                    "P_10001 * 1.8 + 32.0",
                     "Converts primary temperature sensor (#10001) from Celsius to Fahrenheit"
             ),
             new DefaultFormulaSpec(

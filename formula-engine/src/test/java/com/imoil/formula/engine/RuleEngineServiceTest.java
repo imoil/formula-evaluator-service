@@ -33,7 +33,7 @@ class RuleEngineServiceTest {
     }
 
     @Test
-    @DisplayName("도메인 SensorData 단건 및 시계열 평가 시 단일 일련번호(10001, SN_10001) 양방향 바인딩 지원")
+    @DisplayName("도메인 SensorData 단건 및 시계열 평가 시 단일 일련번호(10001, P_10001, SN_10001) 바인딩 지원")
     void testEvaluatePointAndSeriesWithSerialAliases() {
         com.imoil.formula.domain.SensorData point = com.imoil.formula.domain.SensorData.builder()
                 .sensorId("10001")
@@ -42,17 +42,21 @@ class RuleEngineServiceTest {
                 .state(0)
                 .build();
 
-        double pointResult = ruleEngineService.evaluatePoint("SN_10001 * 2.0 + window_avg(2)", point, Arrays.asList(15.0, 25.0));
+        double pointResult = ruleEngineService.evaluatePoint("P_10001 * 2.0 + window_avg(2)", point, Arrays.asList(15.0, 25.0));
         assertThat(pointResult).isEqualTo(70.0);
 
+        // 하위 호환성: SN_10001 수식도 정상 평가
+        double legacyPointResult = ruleEngineService.evaluatePoint("SN_10001 * 2.0 + window_avg(2)", point, Arrays.asList(15.0, 25.0));
+        assertThat(legacyPointResult).isEqualTo(70.0);
+
         com.imoil.formula.domain.SensorData p2 = com.imoil.formula.domain.SensorData.builder()
-                .sensorId("SN_10001")
+                .sensorId("P_10001")
                 .timestamp(2000L)
                 .value(35.0)
                 .state(0)
                 .build();
 
-        var seriesResult = ruleEngineService.evaluateSeries("SN_10001 + window_avg(2)", Arrays.asList(point, p2), "10005");
+        var seriesResult = ruleEngineService.evaluateSeries("P_10001 + window_avg(2)", Arrays.asList(point, p2), "10005");
         assertThat(seriesResult).hasSize(2);
         assertThat(seriesResult.get(0).getSensorId()).isEqualTo("10005");
         assertThat(seriesResult.get(0).getValue()).isEqualTo(50.0);

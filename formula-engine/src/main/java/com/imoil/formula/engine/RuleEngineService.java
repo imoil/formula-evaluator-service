@@ -72,7 +72,7 @@ public class RuleEngineService {
 
     /**
      * 도메인 SensorData 단건과 슬라이딩 윈도우 히스토리를 받아 수식을 평가합니다.
-     * value, state, 윈도우 히스토리 및 단일 일련번호 양방향 표현("10001", "SN_10001")을 자동으로 바인딩합니다.
+     * value, state, 윈도우 히스토리 및 단일 일련번호 표현("10001", "P_10001", 하위 호환 "SN_10001")을 자동으로 바인딩합니다.
      */
     public double evaluatePoint(String expressionText, SensorData data, List<Double> windowHistory) {
         Map<String, Object> env = new HashMap<>(8);
@@ -124,7 +124,7 @@ public class RuleEngineService {
     }
 
     /**
-     * SensorData로부터 평가 컨텍스트 맵(value, state, 윈도우 히스토리, 10001, SN_10001)을 채웁니다.
+     * SensorData로부터 평가 컨텍스트 맵(value, state, 윈도우 히스토리, 10001, P_10001, SN_10001)을 채웁니다.
      */
     public static void populateEnv(Map<String, Object> env, SensorData data, List<Double> windowHistory) {
         if (env == null || data == null) {

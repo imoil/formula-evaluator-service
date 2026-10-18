@@ -19,7 +19,7 @@ The globally unique numeric identifier (`10001+`) assigned by the Sensor Registr
 _Avoid_: Global ID, sequence ID
 
 **Prefixed Serial Identifier**:
-The `SN_`-prefixed string representation of a Serial Number (e.g. `SN_10001`) used inside formula expressions so numeric serials are valid identifier tokens.
+The `P_`-prefixed string representation of a Serial Number (e.g. `P_10001`, formerly `SN_10001` for legacy compatibility) used inside formula expressions so numeric serials are valid native identifier tokens (Parameter / Point).
 _Avoid_: Prefixed ID, tag alias
 
 **Device Sensor Key**:

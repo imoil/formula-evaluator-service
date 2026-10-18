@@ -22,7 +22,7 @@ formula-evaluator-service/
 
 작업 성격에 따라 아래 문서를 먼저 조회하십시오:
 
-* **도메인 용어·식별자 변환(`10001` vs `SN_10001`)·메서드 명명 시** → [`GLOSSARY.md`](GLOSSARY.md)
+* **도메인 용어·식별자 변환(`10001` vs `P_10001`)·메서드 명명 시** → [`GLOSSARY.md`](GLOSSARY.md)
 * **코드 리뷰(`/code-review`)·모듈 경계·보안·테스트 불변식 확인 시** → [`CODING_STANDARDS.md`](CODING_STANDARDS.md)
 * **전체 아키텍처·듀얼 패스 설계·DB 스키마 파악 시** → [`ARCHITECTURE_GUIDE.md`](ARCHITECTURE_GUIDE.md)
 * **Flink 스트리밍 파이프라인·BroadcastState 상세 수정 시** → [`docs/STREAMING_EVALUATOR_GUIDE.md`](docs/STREAMING_EVALUATOR_GUIDE.md)
@@ -37,7 +37,7 @@ formula-evaluator-service/
 1. **단일 일련번호(Serial Number) 체계 (`10001+`)**:
    - 물리 센서(`(deviceId, sensorIndex)`)와 파생 수식 센서는 Oracle 19c `SENSOR_REGISTRY`(`SENSOR_SERIAL_SEQ`, 10001+)에서 전역 고유 일련번호를 부여받습니다.
    - [`DeviceSensorRecordDeserializer`](formula-flink/src/main/java/com/imoil/formula/flink/DeviceSensorRecordDeserializer.java)는 수신 즉시 [`SensorSerialResolver`](formula-core/src/main/java/com/imoil/formula/domain/SensorSerialResolver.java)로 일련번호를 매핑하여 `keyBy(SensorData::getSensorId)` 시 장치 간 키 충돌을 원천 차단합니다.
-   - [`RuleBroadcastProcessFunction`](formula-flink/src/main/java/com/imoil/formula/flink/RuleBroadcastProcessFunction.java)은 정규 일련번호(`DynamicRule.canonicalTargetSerialId()`, 예: `"10001"`) 단일 키로 `BroadcastState`를 관리하고, 평가 시 [`SensorSerialResolver.bindSerialIdentifiers`](formula-core/src/main/java/com/imoil/formula/domain/SensorSerialResolver.java)로 `"10001"`과 `"SN_10001"`을 양방향 바인딩합니다.
+   - [`RuleBroadcastProcessFunction`](formula-flink/src/main/java/com/imoil/formula/flink/RuleBroadcastProcessFunction.java)은 정규 일련번호(`DynamicRule.canonicalTargetSerialId()`, 예: `"10001"`) 단일 키로 `BroadcastState`를 관리하고, 평가 시 [`SensorSerialResolver.bindSerialIdentifiers`](formula-core/src/main/java/com/imoil/formula/domain/SensorSerialResolver.java)로 `"10001"`과 `"P_10001"`(하위 호환: `"SN_10001"`)을 양방향 바인딩합니다.
 2. **수식 평가 및 보안 샌드박스 단일화**:
    - 모든 수식 검증과 평가는 [`RuleEngineService`](formula-engine/src/main/java/com/imoil/formula/engine/RuleEngineService.java)(`validateOnce`, `evaluatePoint`, `evaluateSeries`, `usesWindow`)와 [`RuleEngineConfig.createDefaultEvaluator()`](formula-engine/src/main/java/com/imoil/formula/engine/config/RuleEngineConfig.java)를 경유합니다.
    - 윈도우 히스토리 바인딩은 [`AbstractWindowFunction.bindWindowHistory`](formula-engine/src/main/java/com/imoil/formula/engine/functions/AbstractWindowFunction.java) 내부로 캡슐화합니다.
