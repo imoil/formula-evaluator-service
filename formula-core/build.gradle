@@ -1,3 +1,35 @@
 dependencies {
     // Pure domain model with no external framework dependencies
+    compileOnly libs.questdb.client
+    testImplementation libs.questdb.client
+}
+
+def verifyPureDomain = tasks.register('verifyPureDomain') {
+    description = 'Verifies that formula-core domain sources remain free of Spring and SLF4J dependencies.'
+    group = 'verification'
+    def sourceFiles = fileTree('src/main/java') { include '**/*.java' }
+    inputs.files(sourceFiles)
+    doLast {
+        def forbiddenPrefixes = [
+            'import org.springframework.',
+            'import org.slf4j.',
+            'import lombok.extern.'
+        ]
+        def violations = []
+        sourceFiles.each { file ->
+            file.readLines('UTF-8').eachWithIndex { line, idx ->
+                def trimmed = line.trim()
+                if (forbiddenPrefixes.any { trimmed.startsWith(it) }) {
+                    violations << "${file.name}:${idx + 1} -> ${trimmed}"
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException("formula-core must remain framework/logger-free. Violations:\n" + violations.join('\n'))
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn(verifyPureDomain)
 }

@@ -33,4 +33,21 @@ public class DynamicRule implements Serializable {
 
     // 수식 연산 결과로 방출할 파생/수식 센서의 단일 일련번호/식별자 (예: "10201", "SN_10201", 미설정 시 targetId + "_derived")
     private String derivedSensorId;
+
+    /**
+     * 브로드캐스트 상태 키 및 스트림 매칭을 위한 정규 일련번호 식별자("SN_10001" -> "10001")를 반환합니다.
+     */
+    public String canonicalTargetSerialId() {
+        return SensorSerialResolver.toCanonicalSerialId(targetSensorId);
+    }
+
+    /**
+     * 수식 평가 결과 방출에 사용할 파생 센서 식별자를 결정합니다.
+     */
+    public String resolveOutputSensorId(String fallbackInputSensorId) {
+        if (derivedSensorId != null && !derivedSensorId.isBlank()) {
+            return SensorSerialResolver.toCanonicalSerialId(derivedSensorId);
+        }
+        return fallbackInputSensorId + "_derived";
+    }
 }
