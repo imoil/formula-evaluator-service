@@ -247,12 +247,12 @@ Oracle 19c, QuestDB, Kafka가 포함된 전체 인프라 컨테이너를 구동�
 podman-compose up -d
 
 # Docker Compose 사용 시
-docker compose -f podman-compose.yml up -d
+docker compose -f docker-compose.yml up -d
 ```
 
-> **Oracle 19c 컨테이너 정보**:
+> **Oracle 컨테이너 정보 (`docker.io/gvenzl/oracle-free:23.6-slim`, 오라클 로그인 불필요)**:
 > - 포트: `1521:1521`
-> - SID: `ORCLCDB`, PDB: `ORCLPDB1`
+> - SID: `FREE`, PDB: `ORCLPDB1` (기본 `FREEPDB1` 포함)
 > - 계정: `system` / `formula_password123!`
 
 #### 2. 프로젝트 빌드 및 백엔드 실행
