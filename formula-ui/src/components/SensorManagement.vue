@@ -107,7 +107,7 @@
       <v-card-text class="pa-4">
         <v-row align="center">
           <!-- Search input -->
-          <v-col cols="12" md="4">
+          <v-col cols="12" sm="6" md="3">
             <v-text-field
               v-model="store.searchQuery"
               prepend-inner-icon="mdi-magnify"
@@ -120,7 +120,7 @@
           </v-col>
 
           <!-- Type filter toggle -->
-          <v-col cols="12" md="3">
+          <v-col cols="12" sm="3" md="2">
             <v-select
               v-model="store.typeFilter"
               :items="typeFilterOptions"
@@ -132,7 +132,7 @@
           </v-col>
 
           <!-- Device filter -->
-          <v-col cols="12" md="2">
+          <v-col cols="12" sm="3" md="2">
             <v-select
               v-model="store.deviceFilter"
               :items="['ALL', ...store.availableDevices]"
@@ -144,7 +144,7 @@
           </v-col>
 
           <!-- Action Buttons -->
-          <v-col cols="12" md="3" class="d-flex justify-end gap-2">
+          <v-col cols="12" md="5" class="d-flex flex-wrap align-center justify-start justify-md-end gap-2 action-buttons-container">
             <v-menu>
               <template #activator="{ props }">
                 <v-btn
@@ -174,7 +174,6 @@
               color="indigo"
               variant="tonal"
               prepend-icon="mdi-sync"
-              class="ml-2"
               @click="openSyncModal"
             >
               Sync Device
@@ -186,7 +185,6 @@
                   color="teal"
                   variant="flat"
                   prepend-icon="mdi-sync"
-                  class="ml-2"
                   :loading="store.syncingRules"
                   v-bind="props"
                   @click="handleSyncRules"
@@ -201,7 +199,6 @@
               icon="mdi-refresh"
               variant="text"
               size="small"
-              class="ml-1"
               :loading="store.isLoading"
               @click="store.fetchSensors"
             />
@@ -1140,5 +1137,9 @@ onMounted(() => {
 
 .gap-2 {
   gap: 8px;
+}
+
+.action-buttons-container {
+  min-width: 0;
 }
 </style>

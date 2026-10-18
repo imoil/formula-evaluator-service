@@ -113,9 +113,9 @@
         </v-card>
       </v-col>
 
-      <!-- Right: Detailed Sensor Telemetry Preview -->
+      <!-- Right: Detailed Sensor Telemetry Preview (Sticky while scrolling sensor catalog) -->
       <v-col cols="12" md="5">
-        <v-card v-if="previewSensor" class="border elevation-0" rounded="lg">
+        <v-card v-if="previewSensor" class="border elevation-0 sticky-preview-card" rounded="lg">
           <v-toolbar color="surface" density="compact" class="border-b px-4">
             <v-icon color="secondary" size="small" class="mr-2">mdi-chart-line</v-icon>
             <v-toolbar-title class="text-subtitle-2 font-weight-bold">
@@ -155,6 +155,13 @@
               Use in Formula Simulation
             </v-btn>
           </v-card-text>
+        </v-card>
+
+        <v-card v-else class="border elevation-0 sticky-preview-card text-center pa-8" rounded="lg">
+          <v-icon size="48" color="medium-emphasis" class="mb-2">mdi-chart-line</v-icon>
+          <div class="text-subtitle-1 font-weight-medium text-medium-emphasis">
+            Select a sensor to view its trend
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -354,5 +361,15 @@ onBeforeUnmount(() => {
 .preview-chart-box {
   width: 100%;
   height: 280px;
+}
+
+@media (min-width: 960px) {
+  .sticky-preview-card {
+    position: sticky;
+    top: 80px;
+    z-index: 5;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
 }
 </style>

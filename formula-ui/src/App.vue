@@ -34,18 +34,6 @@
         </v-chip>
       </div>
 
-      <!-- Action Buttons -->
-      <v-btn
-        color="primary"
-        variant="flat"
-        size="small"
-        prepend-icon="mdi-plus"
-        class="mr-2"
-        @click="openCreateFormulaSensor"
-      >
-        New Formula Sensor
-      </v-btn>
-
       <!-- Dark / Light theme toggle -->
       <v-btn
         icon
@@ -86,7 +74,6 @@
         <!-- Tab 0: Unified Sensor Registry (Oracle 19c - Physical & Formula Sensors) -->
         <div v-show="activeTab === 'registry'">
           <SensorManagement
-            ref="sensorManagementRef"
             @simulate-sensor="onSimulateRegistrySensor"
           />
         </div>
@@ -129,18 +116,11 @@ const sensorRegistryStore = useSensorRegistryStore()
 const simulationStore = useSimulationStore()
 
 const activeTab = ref<'registry' | 'simulation' | 'sensors'>('registry')
-const sensorManagementRef = ref<InstanceType<typeof SensorManagement> | null>(null)
 
 const isDarkTheme = computed(() => theme.global.current.value.dark)
 
 function toggleTheme() {
   theme.global.name.value = isDarkTheme.value ? 'light' : 'dark'
-}
-
-async function openCreateFormulaSensor() {
-  activeTab.value = 'registry'
-  await nextTick()
-  sensorManagementRef.value?.openCreateModal('FORMULA')
 }
 
 function onSelectSensorForSim(sensorId: string) {
