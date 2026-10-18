@@ -59,4 +59,15 @@ public class RuleEngineConfig {
         
         return instance;
     }
+
+    /**
+     * Spring 컨텍스트 외부(Flink 분산 워커, 순수 단위 테스트 등)에서도
+     * 동일한 보안 샌드박스와 윈도우 집계 함수가 구성된 엔진 인스턴스를 즉시 생성합니다.
+     */
+    public static AviatorEvaluatorInstance createDefaultEvaluator() {
+        return new RuleEngineConfig().aviatorEvaluatorInstance(
+                new WindowAvgFunction(),
+                new WindowMaxFunction()
+        );
+    }
 }
