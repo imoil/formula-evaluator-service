@@ -7,6 +7,9 @@ import com.imoil.formula.datasource.StreamingBufferDataSourceAdapter;
 import com.imoil.formula.datasource.TimeSeriesDataSourceAdapter;
 import com.imoil.formula.service.MockSensorCatalogService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,9 +30,20 @@ public class TimeSeriesDataSourceConfig {
     @Bean
     @Primary
     @ConditionalOnProperty(name = "evaluation.datasource.type", havingValue = "QUESTDB", matchIfMissing = true)
-    public TimeSeriesDataSourceAdapter questDbDataSourceAdapter(JdbcTemplate jdbcTemplate) {
+    public TimeSeriesDataSourceAdapter questDbDataSourceAdapter(
+            @Autowired(required = false) @Qualifier("questDbJdbcTemplate") JdbcTemplate questDbJdbcTemplate,
+            @Value("${questdb.client.url:http::addr=localhost:9000;}") String questDbUrl) {
         log.info("Configuring TimeSeriesDataSourceAdapter as [QUESTDB]");
-        return new QuestDBDataSourceAdapter(jdbcTemplate);
+        String httpUrl = "http://localhost:9000";
+        if (questDbUrl != null && questDbUrl.contains("addr=")) {
+            String addrPart = questDbUrl.substring(questDbUrl.indexOf("addr=") + 5);
+            int semi = addrPart.indexOf(';');
+            if (semi > 0) {
+                addrPart = addrPart.substring(0, semi);
+            }
+            httpUrl = "http://" + addrPart;
+        }
+        return new QuestDBDataSourceAdapter(questDbJdbcTemplate, httpUrl);
     }
 
     @Bean

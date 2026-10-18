@@ -55,4 +55,26 @@ class SensorControllerTest {
                 .andExpect(jsonPath("$[0].sensorId", is("sensor_001")))
                 .andExpect(jsonPath("$[0].value", notNullValue()));
     }
+
+    @Test
+    @DisplayName("GET /api/v1/sensors/questdb/status 호출 시 QuestDB 연결 상태 DTO가 반환된다")
+    void testGetQuestDbStatus() throws Exception {
+        mockMvc.perform(get("/api/v1/sensors/questdb/status")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", notNullValue()))
+                .andExpect(jsonPath("$.connected", notNullValue()))
+                .andExpect(jsonPath("$.webConsoleUrl", is("http://localhost:9000")));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/sensors/{sensorId}/timeseries?latest=true 호출 시 단일 실시간 데이터가 반환된다")
+    void testGetSensorTimeSeriesLatest() throws Exception {
+        mockMvc.perform(get("/api/v1/sensors/sensor_001/timeseries?latest=true&limit=1")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].sensorId", is("sensor_001")))
+                .andExpect(jsonPath("$[0].value", notNullValue()));
+    }
 }

@@ -118,4 +118,25 @@ class QuestDBQueryRepositoryTest {
             repository.fetchAggregatedData("s1", "start", "end", duration);
         }
     }
+
+    @Test
+    @DisplayName("Oracle DataSource가 주입된 경우 SAMPLE BY 쿼리를 실행하지 않고 빈 목록을 반환한다")
+    void fetchAggregatedData_WithOracleDataSource_ShouldNotExecuteSql() throws Exception {
+        // Given
+        javax.sql.DataSource mockDataSource = org.mockito.Mockito.mock(javax.sql.DataSource.class);
+        java.sql.Connection mockConnection = org.mockito.Mockito.mock(java.sql.Connection.class);
+        java.sql.DatabaseMetaData mockMetaData = org.mockito.Mockito.mock(java.sql.DatabaseMetaData.class);
+
+        org.mockito.Mockito.when(jdbcTemplate.getDataSource()).thenReturn(mockDataSource);
+        org.mockito.Mockito.when(mockDataSource.getConnection()).thenReturn(mockConnection);
+        org.mockito.Mockito.when(mockConnection.getMetaData()).thenReturn(mockMetaData);
+        org.mockito.Mockito.when(mockMetaData.getDatabaseProductName()).thenReturn("Oracle Database 19c Enterprise Edition");
+
+        // When
+        var result = repository.fetchAggregatedData("sensor1", "2023-01-01T00:00:00Z", "2023-01-01T01:00:00Z", "1m");
+
+        // Then
+        assertThat(result).isEmpty();
+        verify(jdbcTemplate, org.mockito.Mockito.never()).query(anyString(), any(RowMapper.class), anyString(), anyString(), anyString());
+    }
 }

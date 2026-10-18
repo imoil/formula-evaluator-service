@@ -249,4 +249,30 @@ public class MockSensorCatalogService {
 
         return points;
     }
+
+    /**
+     * 특정 센서의 현재 시각 기준 단일 실시간 가상 데이터 포인트를 생성합니다.
+     */
+    public SensorData generateLatestPoint(String sensorId) {
+        SensorMeta meta = getSensorMeta(sensorId);
+        long now = System.currentTimeMillis();
+        Random rand = new Random();
+        double val = meta.getMean() + rand.nextGaussian() * meta.getStdDev();
+        if (meta.getMinClamp() != null && val < meta.getMinClamp()) {
+            val = meta.getMinClamp();
+        }
+        if (meta.getMaxClamp() != null && val > meta.getMaxClamp()) {
+            val = meta.getMaxClamp();
+        }
+        val = Math.round(val * 100.0) / 100.0;
+
+        return SensorData.builder()
+                .sensorId(sensorId)
+                .timestamp(now)
+                .value(val)
+                .state(0)
+                .hasInaccurateData(false)
+                .build();
+    }
 }
+
