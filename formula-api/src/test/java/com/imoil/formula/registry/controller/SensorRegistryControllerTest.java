@@ -218,4 +218,22 @@ class SensorRegistryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.syncedCount", greaterThanOrEqualTo(1)));
     }
+
+    @Test
+    @DisplayName("초기 시딩 실행 시 물리 센서와 수식 센서가 모두 SENSOR_REGISTRY에 통합 등록된다")
+    void testSeedDefaultSensorsIfNeeded() throws Exception {
+        registryService.seedDefaultSensorsIfNeeded();
+
+        mockMvc.perform(get("/api/v1/registry/sensors").param("type", "FORMULA"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(greaterThanOrEqualTo(5))))
+                .andExpect(jsonPath("$[*].sensorCode", hasItems(
+                        "FML-PUMP-EFF-01",
+                        "FML-THERMAL-DELTA",
+                        "TEMP_FAHRENHEIT",
+                        "SMOOTHED_TEMP",
+                        "POWER_EFFICIENCY_INDEX"
+                )));
+    }
 }
+

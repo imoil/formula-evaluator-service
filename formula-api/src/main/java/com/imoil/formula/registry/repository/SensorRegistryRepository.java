@@ -43,6 +43,7 @@ public interface SensorRegistryRepository extends JpaRepository<SensorRegistryEn
            " LOWER(s.sensorName) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
            " LOWER(s.sensorCode) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
            " LOWER(s.category) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
+           " LOWER(COALESCE(s.formulaExpression, '')) LIKE LOWER(CONCAT('%', :keyword, '%')) OR " +
            " STR(s.serialNumber) LIKE CONCAT('%', :keyword, '%')) " +
            "ORDER BY s.serialNumber ASC")
     List<SensorRegistryEntity> searchSensors(

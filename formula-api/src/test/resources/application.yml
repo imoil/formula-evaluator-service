@@ -22,3 +22,6 @@ formula:
   rules:
     topic: rule-data
     sync-on-startup: false
+  registry:
+    seed-on-startup: false
+

@@ -41,3 +41,6 @@ formula:
   rules:
     topic: ${FORMULA_RULES_TOPIC:rule-data}
     sync-on-startup: ${FORMULA_RULES_SYNC_ON_STARTUP:true}
+  registry:
+    seed-on-startup: ${FORMULA_REGISTRY_SEED_ON_STARTUP:true}
+

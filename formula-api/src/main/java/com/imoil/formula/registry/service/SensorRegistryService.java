@@ -12,6 +12,7 @@ import com.imoil.formula.registry.repository.SensorRegistryRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,7 @@ import java.util.stream.Collectors;
 /**
  * IoT 장치 센서와 수식 센서를 위한 통합 일련번호 관리 서비스.
  * Oracle 19c SENSOR_REGISTRY 테이블 및 시퀀스와 연동하고,
- * Flink 및 온디맨드 처리를 위한 SensorSerialResolver 및 카프카 rule-data와 동기화합니다.
+ * Flink 및 온디멘드 처리를 위한 SensorSerialResolver 및 카프카 rule-data와 동기화합니다.
  */
 @Slf4j
 @Service
@@ -33,9 +34,116 @@ public class SensorRegistryService {
     private final SensorRegistryRepository repository;
     private final RulePublisherService rulePublisherService;
 
+    @Value("${formula.registry.seed-on-startup:true}")
+    private boolean seedOnStartup;
+
+    private record DefaultPhysicalSpec(
+            String sensorCode,
+            String sensorName,
+            String category,
+            String unit,
+            String deviceId,
+            int deviceSensorIndex,
+            String description
+    ) {}
+
+    private record DefaultFormulaSpec(
+            String sensorCode,
+            String sensorName,
+            String category,
+            String unit,
+            String formulaExpression,
+            String description
+    ) {}
+
+    private static final List<DefaultPhysicalSpec> DEFAULT_PHYSICAL_SPECS = List.of(
+            new DefaultPhysicalSpec(
+                    "PHY-DEVICE001-S000",
+                    "[DEVICE-001] Main Bearing Temperature",
+                    "Temperature",
+                    "°C",
+                    "DEVICE-001",
+                    0,
+                    "IoT Emulator Device-001 Primary Bearing Thermocouple"
+            ),
+            new DefaultPhysicalSpec(
+                    "PHY-DEVICE001-S001",
+                    "[DEVICE-001] Discharge Pressure",
+                    "Pressure",
+                    "bar",
+                    "DEVICE-001",
+                    1,
+                    "IoT Emulator Device-001 Outlet Gas Pressure"
+            ),
+            new DefaultPhysicalSpec(
+                    "PHY-DEVICE002-S000",
+                    "[DEVICE-002] Auxiliary Bearing Temperature",
+                    "Temperature",
+                    "°C",
+                    "DEVICE-002",
+                    0,
+                    "IoT Emulator Device-002 Secondary Bearing (Avoids index collision with Device-001)"
+            ),
+            new DefaultPhysicalSpec(
+                    "PHY-DEVICE002-S001",
+                    "[DEVICE-002] Intake Pressure",
+                    "Pressure",
+                    "bar",
+                    "DEVICE-002",
+                    1,
+                    "IoT Emulator Device-002 Suction Line Pressure"
+            )
+    );
+
+    private static final List<DefaultFormulaSpec> DEFAULT_FORMULA_SPECS = List.of(
+            new DefaultFormulaSpec(
+                    "FML-PUMP-EFF-01",
+                    "Pump Differential Compression Ratio",
+                    "Efficiency",
+                    "ratio",
+                    "SN_10002 / (SN_10004 + 0.001)",
+                    "Calculated formula sensor comparing discharge vs intake pressure using unified serial numbers"
+            ),
+            new DefaultFormulaSpec(
+                    "FML-THERMAL-DELTA",
+                    "Dual-Device Thermal Delta",
+                    "Temperature",
+                    "°C",
+                    "abs(SN_10001 - SN_10003)",
+                    "Calculated delta between Device-001 and Device-002 bearing temperatures"
+            ),
+            new DefaultFormulaSpec(
+                    "TEMP_FAHRENHEIT",
+                    "Exhaust Temp (°F)",
+                    "Temperature",
+                    "°F",
+                    "SN_10001 * 1.8 + 32.0",
+                    "Converts primary temperature sensor (#10001) from Celsius to Fahrenheit"
+            ),
+            new DefaultFormulaSpec(
+                    "SMOOTHED_TEMP",
+                    "10s Sliding Average Temp",
+                    "Temperature",
+                    "°C",
+                    "window_avg(10)",
+                    "Noise-reduced temperature using 10-second sliding window average"
+            ),
+            new DefaultFormulaSpec(
+                    "POWER_EFFICIENCY_INDEX",
+                    "Overall Plant Efficiency Index",
+                    "Efficiency",
+                    "%",
+                    "(TEMP_FAHRENHEIT > 140 ? TEMP_FAHRENHEIT * 1.05 : TEMP_FAHRENHEIT) * 0.5 + (SMOOTHED_TEMP * 0.2)",
+                    "Composite formula sensor referencing sub-formulas [TEMP_FAHRENHEIT, SMOOTHED_TEMP] and conditional logic"
+            )
+    );
+
     @PostConstruct
     public void initResolverMappings() {
         try {
+            if (seedOnStartup) {
+                seedDefaultSensorsIfNeeded();
+            }
             List<SensorRegistryEntity> physicalSensors = repository.findBySensorType(SensorType.PHYSICAL);
             for (SensorRegistryEntity e : physicalSensors) {
                 if (e.getDeviceId() != null && e.getDeviceSensorIndex() != null && e.getSerialNumber() != null) {
@@ -46,6 +154,58 @@ public class SensorRegistryService {
             log.info("Initialized SensorSerialResolver with {} registered physical sensors.", physicalSensors.size());
         } catch (Exception e) {
             log.debug("Could not pre-populate SensorSerialResolver mappings: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 초기 기동 시 물리 센서 또는 수식 센서가 비어 있는 경우 기본 마스터/수식 센서를 자동 시딩합니다.
+     */
+    @Transactional
+    public void seedDefaultSensorsIfNeeded() {
+        if (repository.findBySensorType(SensorType.PHYSICAL).isEmpty()) {
+            List<SensorRegistryEntity> physicalToSave = new ArrayList<>();
+            for (DefaultPhysicalSpec spec : DEFAULT_PHYSICAL_SPECS) {
+                if (!repository.existsBySensorCode(spec.sensorCode())
+                        && !repository.existsByDeviceIdAndDeviceSensorIndex(spec.deviceId(), spec.deviceSensorIndex())) {
+                    physicalToSave.add(SensorRegistryEntity.builder()
+                            .sensorCode(spec.sensorCode())
+                            .sensorName(spec.sensorName())
+                            .sensorType(SensorType.PHYSICAL)
+                            .category(spec.category())
+                            .unit(spec.unit())
+                            .deviceId(spec.deviceId())
+                            .deviceSensorIndex(spec.deviceSensorIndex())
+                            .description(spec.description())
+                            .status(SensorStatus.ACTIVE)
+                            .build());
+                }
+            }
+            if (!physicalToSave.isEmpty()) {
+                repository.saveAll(physicalToSave);
+                log.info("Seeded {} default physical sensors into SENSOR_REGISTRY.", physicalToSave.size());
+            }
+        }
+
+        if (repository.findBySensorType(SensorType.FORMULA).isEmpty()) {
+            List<SensorRegistryEntity> formulasToSave = new ArrayList<>();
+            for (DefaultFormulaSpec spec : DEFAULT_FORMULA_SPECS) {
+                if (!repository.existsBySensorCode(spec.sensorCode())) {
+                    formulasToSave.add(SensorRegistryEntity.builder()
+                            .sensorCode(spec.sensorCode())
+                            .sensorName(spec.sensorName())
+                            .sensorType(SensorType.FORMULA)
+                            .category(spec.category())
+                            .unit(spec.unit())
+                            .formulaExpression(spec.formulaExpression())
+                            .description(spec.description())
+                            .status(SensorStatus.ACTIVE)
+                            .build());
+                }
+            }
+            if (!formulasToSave.isEmpty()) {
+                repository.saveAll(formulasToSave);
+                log.info("Seeded {} default formula sensors into SENSOR_REGISTRY.", formulasToSave.size());
+            }
         }
     }
 
