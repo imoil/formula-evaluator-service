@@ -114,28 +114,27 @@ formula-ui/
 ```mermaid
 flowchart TD
     App["v-app (전체 레이아웃)"]
-    AppBar["v-app-bar (서버 Online 상태 칩, 새 수식 생성 버튼, 다크/라이트 테마 스위치)"]
+    AppBar["v-app-bar (서버 Online 상태 칩, New Formula Sensor 생성 버튼, 다크/라이트 테마 스위치)"]
     Tabs["v-tabs (화면 전환 네비게이션)"]
 
-    Tab0["0. Unified Sensor Registry (단일 센서 일련번호 관리 & 동기화)"]
-    Tab1["1. Formula Management (수식 목록 및 관리)"]
-    Tab2["2. Simulation Studio (1시간 시계열 결과 시뮬레이션)"]
-    Tab3["3. Sensors Explorer (백엔드 formula-api 센서 카탈로그 & 파형 탐색)"]
+    Tab0["0. Unified Sensor Registry (물리 센서 및 수식 센서 통합 일련번호 관리 & 동기화)"]
+    Tab1["1. Simulation Studio (1시간 시계열 결과 시뮬레이션)"]
+    Tab2["2. Integrated Sensor Explorer (백엔드 formula-api 센서 카탈로그 & 파형 탐색)"]
 
     App --> AppBar
     App --> Tabs
-    Tabs --> Tab0 & Tab1 & Tab2 & Tab3
+    Tabs --> Tab0 & Tab1 & Tab2
 ```
 
-### 화면 0: 통합 센서 일련번호 관리 (`SensorManagement.vue`)
-* **단일 일련번호 체계 (`serialNumber: 10001+`)**:
-  - IoT 장치의 물리 센서(`PHYSICAL`)와 수식 센서(`FORMULA`)가 통일된 일련번호로 관리됩니다.
-  - `sensorStore.sensors`는 `sensorRegistryStore.sensors`와 `baseSensors`를 반응형 `computed`로 자동 병합하므로, 레지스트리에서 센서를 추가·수정·삭제할 때마다 수동 카탈로그 동기화 호출 없이 온디멘드 시뮬레이터와 탐색기에 즉시 반영됩니다.
-  - 상단 KPI 통계 요약 카드: 총 등록 센서, 물리 센서, 수식 센서, 연결된 IoT 장치 수 실시간 집계.
-* **센서 추가 모달**:
+### 화면 0: 통합 센서 및 수식 일련번호 관리 (`SensorManagement.vue`)
+* **단일 일련번호 체계 (`serialNumber: 10001+`) 및 수식 센서 통합**:
+  - IoT 장치의 물리 센서(`PHYSICAL`)와 파생 수식 센서(`FORMULA`)가 별도 탭으로 분리되지 않고 **Unified Sensor Registry** 단일 화면과 단일 일련번호 체계로 통합 관리됩니다.
+  - `sensorStore.sensors`와 `formulaStore.formulas` 모두 `sensorRegistryStore.sensors`를 반응형 `computed`로 파생하므로, 레지스트리에서 물리 센서나 수식 센서를 추가·수정·복제·삭제할 때마다 온디멘드 시뮬레이터와 탐색기에 즉시 반영됩니다.
+  - 상단 KPI 통계 요약 카드(총 등록 센서, 물리 센서, 수식 센서, 연결된 IoT 장치 수)를 클릭하면 즉시 해당 센서 타입으로 필터링됩니다.
+* **센서 및 수식 통합 등록/편집 모달**:
   - 물리 센서: 장치명(예: `DEVICE-001`), 장치 로컬 센서 인덱스(예: `0`), 센서명, 카테고리, 단위 입력.
-  - 수식 센서: 일련번호 기반 계산식(예: `'SN_10001 * 0.8 + SN_10002 * 0.2'`) 입력.
-  - 다음 채번될 일련번호가 모달 상단에 칩으로 자동 프리뷰(`Next Serial: #10001`).
+  - 수식 센서: 선택적 수식 코드(`sensorCode`, 예: `TEMP_FAHRENHEIT`), 일련번호/서브수식 기반 계산식(예: `'SN_10001 * 1.8 + 32'`), 원클릭 스니펫 삽입(물리 센서, 서브 수식, 윈도우 함수), 실시간 DAG 의존성 분석 및 Dry-Run 테스트 지원.
+  - 다음 채번될 일련번호가 모달 상단에 칩으로 자동 프리뷰(`Next Serial: #10010`).
 * **IoT 장치 일괄 동기화 (Sync Device)**:
   - `formula-emulator`의 IoT 장치(예: `DEVICE-001`) 센서 1,000개를 한 번에 등록하여 고유 일련번호를 순차 부여.
   - 기존 등록 센서 건너뛰기(`skipExisting: true`) 옵션 제공.

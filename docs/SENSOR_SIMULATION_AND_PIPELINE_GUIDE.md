@@ -286,28 +286,34 @@ Flink 스트리밍 평가 엔진은 Kafka로부터 센서 패킷과 동적 룰�
 
 ---
 
-### 4.4 [4단계] 프론트엔드 UI(formula-ui) 기동 및 센서 레지스트리 확인
+### 4.4 [4단계] 프론트엔드 UI(formula-ui) 기동 및 통합 센서 레지스트리 확인
 
-웹 인터페이스를 통해 센서 메타데이터를 관리하고 Flink 메모리로의 룰 일괄 동기화 상태를 제어합니다.
+웹 인터페이스의 **[Unified Sensor Registry]** 탭에서 물리 센서(`PHYSICAL`)와 파생 수식 센서(`FORMULA`)를 단일 일련번호(`10001+`) 체계로 통합 관리하고, Flink 메모리로의 룰 일괄 동기화 상태를 제어합니다.
 
 #### 1) 프론트엔드 개발 서버 기동
 새 터미널 창을 열고 `formula-ui` 디렉토리에서 실행합니다:
 ```bash
 cd formula-ui
-npm run dev
+pnpm run dev
 ```
 
-#### 2) 웹 브라우저 접속 및 UI 확인
+#### 2) 웹 브라우저 접속 및 통합 수식 센서 확인
 1. 브라우저에서 `http://localhost:3000`으로 접속합니다.
-2. 상단 메뉴에서 **[Unified Sensor Registry]** 탭을 클릭합니다.
-3. 등록된 센서 목록 중 수식 센서(예: `SN_10201` - 화씨 변환, `SN_10202` - 이동평균)를 확인합니다.
+2. 상단 메뉴에서 **[Unified Sensor Registry]** 탭을 확인합니다 (물리 센서 및 수식 센서가 단일 테이블에 통합 표시됨).
+3. 상단 KPI 요약 카드 중 **[Formula Sensors (Derived / Aviator)]** 카드를 클릭하거나 Type 필터에서 `Formula Sensor`를 선택하면 수식 센서 목록만 즉시 필터링할 수 있습니다:
+   - `#10005` (`FML-PUMP-EFF-01`): Pump Thermal Efficiency Index (`window_avg(10) * 1.15 + (SN_10002 * 0.05)`)
+   - `#10006` (`FML-THERMAL-DELTA`): Device 1 vs Device 2 Temp Delta (`abs(SN_10001 - SN_10003)`)
+   - `#10007` (`TEMP_FAHRENHEIT`): Temperature (Fahrenheit) (`SN_10001 * 1.8 + 32`)
+   - `#10008` (`SMOOTHED_TEMP`): Smoothed Temperature (60s Window Avg) (`window_avg(60)`)
+   - `#10009` (`POWER_EFFICIENCY_INDEX`): Power Efficiency Composite Index (`(TEMP_FAHRENHEIT * 0.6) + (window_max(120) * 0.4)`)
+4. 상단 **"+ New Formula Sensor"** 또는 **"Register Sensor / Formula"** 버튼을 통해 신규 물리/수식 센서 등록, 수식 의존성 분석, 문법 검증 및 Dry-Run 테스트를 한 화면에서 수행할 수 있습니다.
 
 #### 3) Flink 룰 일괄 동기화(Sync Rules) 버튼 검증
-* 툴바 상단의 **"🔄 Sync Rules to Flink"** 버튼을 클릭합니다.
+* 툴바 상단의 **"Sync Rules to Flink"** 버튼을 클릭합니다.
 * **정상 처리 확인**:
-  - 버튼에 로딩 스피너가 표시된 후 초록색 토스트 알림(`Successfully synchronized 2 formula rules to Flink via Kafka.`)이 팝업됩니다.
-  - `formula-api` 로그에 `Publishing rule to Kafka [rule-data]: target=SN_10001, derived=10201`이 출력됩니다.
-  - `formula-flink` 콘솔에 `[Broadcast Rule Updated] ruleId=rule_fahrenheit, targetSensorId=10001, expr=value * 1.8 + 32.0` 로그가 실시간 출력됩니다.
+  - 버튼에 로딩 스피너가 표시된 후 초록색 알림 배너(`Successfully synchronized 5 active formula rule(s) to Kafka topic 'rule-data'.`)가 표시됩니다.
+  - `formula-api` 로그에 `Publishing rule to Kafka [rule-data]`가 출력됩니다.
+  - `formula-flink` 콘솔에 브로드캐스트 룰 수신 및 갱신 로그가 실시간 출력됩니다.
 
 ---
 

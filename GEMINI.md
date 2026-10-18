@@ -44,8 +44,9 @@ formula-evaluator-service/
 3. **데이터소스 I/O 경계**:
    - QuestDB ILP 적재는 [`SensorDataWriter.forQuestDbSender(Sender)`](formula-core/src/main/java/com/imoil/formula/domain/SensorDataWriter.java)(Mock 시 `SensorDataWriter.noOp()`)를 사용합니다.
    - QuestDB PGWire 조회 및 `SAMPLE BY` 정규식 검증(`^[1-9][0-9]*(?:s|m|h|d|w|ms|M|y)$`)은 [`QuestDBDataSourceAdapter`](formula-api/src/main/java/com/imoil/formula/datasource/QuestDBDataSourceAdapter.java)에서 수행합니다.
-4. **프론트엔드 단방향 상태 파생**:
-   - [`sensorStore.ts`](formula-ui/src/stores/sensorStore.ts)의 `sensors`는 [`sensorRegistryStore.ts`](formula-ui/src/stores/sensorRegistryStore.ts)를 반응형 `computed`로 병합하며, 레지스트리 시뮬레이션 전환은 [`simulationStore.prepareRegistrySensorSimulation`](formula-ui/src/stores/simulationStore.ts) 단일 진입점을 사용합니다.
+4. **프론트엔드 단방향 상태 파생 및 통합 센서 레지스트리**:
+   - 물리 센서(`PHYSICAL`)와 파생 수식 센서(`FORMULA`)는 [`SensorManagement.vue`](formula-ui/src/components/SensorManagement.vue) (**Unified Sensor Registry**) 단일 화면에서 통합 관리됩니다.
+   - [`sensorStore.ts`](formula-ui/src/stores/sensorStore.ts)의 `sensors`와 [`formulaStore.ts`](formula-ui/src/stores/formulaStore.ts)의 `formulas`는 모두 [`sensorRegistryStore.ts`](formula-ui/src/stores/sensorRegistryStore.ts)를 반응형 `computed`로 파생하며, 레지스트리 시뮬레이션 전환은 [`simulationStore.prepareRegistrySensorSimulation`](formula-ui/src/stores/simulationStore.ts) 단일 진입점을 사용합니다.
 
 ---
 

@@ -42,11 +42,13 @@
 
 ---
 
-## 4. 프론트엔드 단방향 반응형 스토어 (`formula-ui`)
+## 4. 프론트엔드 단방향 반응형 스토어 및 통합 센서 레지스트리 (`formula-ui`)
 
-* **단방향 카탈로그 파생**:
-  - [`sensorRegistryStore.ts`](formula-ui/src/stores/sensorRegistryStore.ts)는 오직 레지스트리 CRUD 및 Flink 룰 동기화만 수행하며, `sensorStore`를 import하거나 수동 동기화 함수를 호출하지 않습니다.
-  - 통합 센서 카탈로그는 [`sensorStore.ts`](formula-ui/src/stores/sensorStore.ts)의 반응형 `computed` 프로퍼티(`sensors`)에서 `sensorRegistryStore.sensors`와 `baseSensors`를 병합하여 파생합니다.
+* **단방향 카탈로그 및 수식 파생**:
+  - [`sensorRegistryStore.ts`](formula-ui/src/stores/sensorRegistryStore.ts)는 오직 레지스트리 CRUD(물리 센서 및 수식 센서 생성/수정/복제/삭제) 및 Flink 룰 동기화만 수행하며, `sensorStore`나 `formulaStore`를 import하거나 수동 동기화 함수를 호출하지 않습니다.
+  - 통합 센서 카탈로그는 [`sensorStore.ts`](formula-ui/src/stores/sensorStore.ts)의 반응형 `computed` 프로퍼티(`sensors`)에서, 수식 목록은 [`formulaStore.ts`](formula-ui/src/stores/formulaStore.ts)의 반응형 `computed` 프로퍼티(`formulas`)에서 각각 `sensorRegistryStore.sensors`를 병합·파생합니다.
+* **통합 센서·수식 레지스트리 UI (`SensorManagement.vue`)**:
+  - 모든 물리 센서와 수식 센서는 별도 탭으로 분리하지 않고 [`SensorManagement.vue`](formula-ui/src/components/SensorManagement.vue) (**Unified Sensor Registry**)에서 통합 관리합니다.
 * **원클릭 시뮬레이션 조정**:
   - 레지스트리 센서의 시뮬레이션 준비(수식 보장, 센서 선택, 표현식 바인딩)는 [`simulationStore.prepareRegistrySensorSimulation`](formula-ui/src/stores/simulationStore.ts) 단일 액션에서 처리하며, UI 컴포넌트(`App.vue`, `SensorManagement.vue`)는 탭 전환만 수행합니다.
 
