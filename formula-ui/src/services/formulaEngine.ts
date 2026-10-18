@@ -3,6 +3,47 @@ import { generateSensorTimeSeries } from './sensorDataGenerator'
 import { CircularBuffer } from './circularBuffer'
 
 /**
+ * Normalize sensor identifier: strips 'SN_' prefix when followed by digits ('SN_10001' -> '10001')
+ */
+export function toCanonicalSensorId(rawId: string): string {
+  const trimmed = rawId.trim()
+  if (/^SN_\d+$/i.test(trimmed)) {
+    return trimmed.substring(3)
+  }
+  return trimmed
+}
+
+/**
+ * Return prefixed or canonical serial identifier ('10001' -> 'SN_10001', 'SN_10001' -> '10001'), or null if not a serial number
+ */
+export function toPrefixedOrCanonicalSensorId(rawId: string): string | null {
+  const trimmed = rawId.trim()
+  if (/^SN_\d+$/i.test(trimmed)) {
+    return trimmed.substring(3)
+  }
+  if (/^\d+$/.test(trimmed)) {
+    return `SN_${trimmed}`
+  }
+  return null
+}
+
+/**
+ * Extract the primary target sensor referenced in an expression, falling back to defaultSensorId
+ */
+export function extractPrimarySensorId(expressionStr?: string | null, defaultSensorId = '10001'): string {
+  if (!expressionStr) return defaultSensorId
+  const serialMatch = expressionStr.match(/\b(?:SN_)?(\d{4,6})\b/)
+  if (serialMatch) {
+    return serialMatch[1]
+  }
+  const sensorMatch = expressionStr.match(/\b(sensor_\d+)\b/i)
+  if (sensorMatch) {
+    return sensorMatch[1]
+  }
+  return defaultSensorId
+}
+
+/**
  * Tokenize an expression and extract referenced variables
  */
 export function extractReferences(
@@ -50,8 +91,10 @@ export function extractReferences(
   for (const token of tokens) {
     if (reservedWords.has(token)) continue
 
-    // Detect sensor tokens (e.g. sensor_000, temp_sensor_1, SENSOR_01)
-    if (/^(sensor_\d{3}|sensor_\d+|[A-Za-z0-9_]+_sensor|[A-Za-z0-9_]+_stream)$/i.test(token)) {
+    // Detect unified serial sensor tokens (e.g. SN_10001) or named sensor tokens (e.g. sensor_000, temp_sensor_1)
+    if (/^SN_\d+$/i.test(token)) {
+      sensorIds.add(toCanonicalSensorId(token))
+    } else if (/^(sensor_\d{3}|sensor_\d+|[A-Za-z0-9_]+_sensor|[A-Za-z0-9_]+_stream)$/i.test(token)) {
       sensorIds.add(token)
     } else if (knownFormulaIds.has(token)) {
       formulaIds.add(token)
@@ -315,8 +358,11 @@ export function simulateFormula(
   // 3. Load sensor time series: Use backend provided dataset if available, fallback to generator
   const sensorDataMap = new Map<string, any[]>()
   for (const sId of requiredSensors) {
+    const counterpartId = toPrefixedOrCanonicalSensorId(sId)
     if (options.customSensorDataMap && options.customSensorDataMap.has(sId)) {
       sensorDataMap.set(sId, options.customSensorDataMap.get(sId)!)
+    } else if (counterpartId && options.customSensorDataMap && options.customSensorDataMap.has(counterpartId)) {
+      sensorDataMap.set(sId, options.customSensorDataMap.get(counterpartId)!)
     } else {
       const ts = generateSensorTimeSeries(sId, durationSeconds)
       sensorDataMap.set(sId, ts.points)
@@ -347,6 +393,7 @@ export function simulateFormula(
 
   // Pre-extract array bindings outside the time-series loop to eliminate repeated Map lookups
   const sensorIdsList = Array.from(requiredSensors)
+  const prefixedOrCanonicalIdsList = sensorIdsList.map((sId) => toPrefixedOrCanonicalSensorId(sId))
   const sensorSeriesList = sensorIdsList.map((sId) => sensorDataMap.get(sId))
   const sensorBufferList = sensorIdsList.map((sId) => historyBuffers.get(sId)!)
 
@@ -377,9 +424,13 @@ export function simulateFormula(
     // Inject sensor telemetry values for current second using pre-extracted bindings
     for (let i = 0; i < sensorIdsList.length; i++) {
       const sId = sensorIdsList[i]
+      const counterpartId = prefixedOrCanonicalIdsList[i]
       const series = sensorSeriesList[i]
       const val = series && series[t] ? series[t].value : 0
       ctx[sId] = val
+      if (counterpartId) {
+        ctx[counterpartId] = val
+      }
 
       // Update sliding window buffer
       const buf = sensorBufferList[i]

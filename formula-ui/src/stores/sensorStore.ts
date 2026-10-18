@@ -13,21 +13,14 @@ import { useSensorRegistryStore } from './sensorRegistryStore'
  * 3) High-performance client-side simulation engine
  */
 export const useSensorStore = defineStore('sensor', () => {
-  const sensors = ref<SensorMetadata[]>([])
+  const registryStore = useSensorRegistryStore()
+  const baseSensors = ref<SensorMetadata[]>([])
   const isLoading = ref<boolean>(false)
   const isBackendConnected = ref<boolean>(false)
   const errorMessage = ref<string | null>(null)
 
   // In-memory cache for loaded sensor time-series datasets
   const timeSeriesCache = new Map<string, SensorDataPoint[]>()
-
-  const sensorMap = computed(() => {
-    return new Map(sensors.value.map((s) => [s.id, s]))
-  })
-
-  const categories = computed(() => {
-    return Array.from(new Set(sensors.value.map((s) => s.category)))
-  })
 
   /**
    * Oracle 19c SENSOR_REGISTRY 항목을 SensorMetadata 형식으로 변환
@@ -62,37 +55,48 @@ export const useSensorStore = defineStore('sensor', () => {
   }
 
   /**
-   * Oracle 19c 영속성 레지스트리와 통합하여 센서 목록 로드
+   * sensorRegistryStore.sensors와 baseSensors를 반응형(computed)으로 자동 병합
+   */
+  const sensors = computed<SensorMetadata[]>(() => {
+    const mergedMap = new Map<string, SensorMetadata>()
+    for (const item of registryStore.sensors) {
+      const meta = mapRegistryToMetadata(item)
+      mergedMap.set(meta.id, meta)
+    }
+    for (const s of baseSensors.value) {
+      if (!mergedMap.has(s.id)) {
+        mergedMap.set(s.id, s)
+      }
+    }
+    return Array.from(mergedMap.values())
+  })
+
+  const sensorMap = computed(() => {
+    return new Map(sensors.value.map((s) => [s.id, s]))
+  })
+
+  const categories = computed(() => {
+    return Array.from(new Set(sensors.value.map((s) => s.category)))
+  })
+
+  /**
+   * 백엔드 또는 로컬 폴백 센서 목록을 로드하여 반응형 레지스트리 카탈로그와 통합
    */
   async function loadSensors(forceReload = false) {
-    if (sensors.value.length > 0 && !forceReload) return
+    if (baseSensors.value.length > 0 && !forceReload) return
 
     isLoading.value = true
     errorMessage.value = null
 
-    const registryStore = useSensorRegistryStore()
-
     try {
       const data = await fetchBackendSensors()
-      // 백엔드 데이터에 Oracle 레지스트리 센서가 이미 병합되어 반환됨
-      sensors.value = data
+      baseSensors.value = data
       isBackendConnected.value = true
     } catch (err: any) {
       console.warn('Backend sensor service unreachable, using registry store + fallback generator:', err)
       isBackendConnected.value = false
       errorMessage.value = 'Running in offline fallback mode with Oracle Registry Local State.'
-
-      // 오프라인 상태에서도 registryStore의 센서 목록을 최우선으로 통합
-      const registrySensors = registryStore.sensors.map(mapRegistryToMetadata)
-      const fallbackSensors = getFallbackSensors()
-
-      const mergedMap = new Map<string, SensorMetadata>()
-      registrySensors.forEach((s) => mergedMap.set(s.id, s))
-      fallbackSensors.forEach((s) => {
-        if (!mergedMap.has(s.id)) mergedMap.set(s.id, s)
-      })
-
-      sensors.value = Array.from(mergedMap.values())
+      baseSensors.value = getFallbackSensors()
     } finally {
       isLoading.value = false
     }

@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { SimulationResult, SimulationConfig } from '../types/formula'
+import type { FormulaDefinition, SimulationResult, SimulationConfig } from '../types/formula'
 import type { SensorDataPoint } from '../types/sensor'
+import type { SensorRegistryItem } from '../types/sensorRegistry'
 import { useFormulaStore } from './formulaStore'
 import { useSensorStore } from './sensorStore'
 import { simulateFormula, getRequiredSensors } from '../services/formulaEngine'
@@ -15,12 +16,38 @@ export const useSimulationStore = defineStore('simulation', () => {
   const currentResult = ref<SimulationResult | null>(null)
   const errorMessage = ref<string | null>(null)
 
+  const targetFormulaId = ref<string>('POWER_EFFICIENCY_INDEX')
+  const targetSensorId = ref<string>('sensor_000')
+
   const config = ref<SimulationConfig>({
     formulaId: 'POWER_EFFICIENCY_INDEX',
     durationSeconds: 3600, // 1 hour (3600 data points)
     sampleStep: 1, // 1 second
     useBackend: false,
   })
+
+  function prepareFormulaSimulation(formula: FormulaDefinition) {
+    targetFormulaId.value = formula.id
+    config.value.formulaId = formula.id
+    if (formula.targetSensor) {
+      targetSensorId.value = formula.targetSensor
+      config.value.targetSensorId = formula.targetSensor
+    }
+  }
+
+  function prepareSensorSimulation(sensorId: string) {
+    targetSensorId.value = sensorId
+    config.value.targetSensorId = sensorId
+  }
+
+  function prepareRegistrySensorSimulation(sensor: SensorRegistryItem) {
+    if (sensor.sensorType === 'PHYSICAL') {
+      prepareSensorSimulation(String(sensor.serialNumber))
+      return
+    }
+    const formula = formulaStore.ensureFormulaForRegistrySensor(sensor)
+    prepareFormulaSimulation(formula)
+  }
 
   async function runSimulation(customConfig?: Partial<SimulationConfig>) {
     if (customConfig) {
@@ -146,9 +173,14 @@ export const useSimulationStore = defineStore('simulation', () => {
 
   return {
     config,
+    targetFormulaId,
+    targetSensorId,
     isRunning,
     currentResult,
     errorMessage,
+    prepareFormulaSimulation,
+    prepareSensorSimulation,
+    prepareRegistrySensorSimulation,
     runSimulation,
   }
 })

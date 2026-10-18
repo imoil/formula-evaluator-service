@@ -122,4 +122,33 @@ describe('Formula Dependency Engine & Sub-Formula Composition', () => {
     expect(Number.isFinite(pt0.computedValue)).toBe(true)
     expect(result.metrics.executionTimeMs).toBeGreaterThan(0)
   })
+
+  it('should extract and simulate unified serial identifiers (SN_10001, SN_10004) without ReferenceError', () => {
+    const serialFormula = {
+      id: 'PUMP_EFF',
+      name: 'Pump Compression Ratio',
+      expression: 'SN_10002 / (SN_10004 + 0.001)',
+      category: 'Efficiency',
+      targetSensor: '10002',
+      createdAt: '',
+      updatedAt: '',
+    }
+
+    const refs = extractReferences(serialFormula.expression, [serialFormula])
+    expect(refs.sensorIds).toEqual(['10002', '10004'])
+
+    const customMap = new Map<string, any[]>()
+    customMap.set('10002', [{ timestamp: '20:00:00', timestampMs: 1000, value: 100 }])
+    customMap.set('10004', [{ timestamp: '20:00:00', timestampMs: 1000, value: 49.999 }])
+
+    const result = simulateFormula(serialFormula, [serialFormula], {
+      durationSeconds: 1,
+      primarySensorId: '10002',
+      customSensorDataMap: customMap,
+    })
+
+    expect(result.metrics.nanCount).toBe(0)
+    expect(result.points[0].computedValue).toBe(2)
+  })
 })
+

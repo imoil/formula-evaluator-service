@@ -108,8 +108,8 @@
         <!-- Tab 2: Simulation Studio -->
         <div v-show="activeTab === 'simulation'">
           <FormulaSimulation
-            :initial-formula-id="simulationTargetFormulaId"
-            :initial-sensor-id="simulationTargetSensorId"
+            :initial-formula-id="simulationStore.targetFormulaId"
+            :initial-sensor-id="simulationStore.targetSensorId"
             :is-active="activeTab === 'simulation'"
           />
         </div>
@@ -141,6 +141,7 @@ import type { SensorRegistryItem } from './types/sensorRegistry'
 import { useFormulaStore } from './stores/formulaStore'
 import { useSensorStore } from './stores/sensorStore'
 import { useSensorRegistryStore } from './stores/sensorRegistryStore'
+import { useSimulationStore } from './stores/simulationStore'
 import FormulaList from './components/FormulaList.vue'
 import FormulaEditor from './components/FormulaEditor.vue'
 import FormulaSimulation from './components/FormulaSimulation.vue'
@@ -151,12 +152,11 @@ const theme = useTheme()
 const formulaStore = useFormulaStore()
 const sensorStore = useSensorStore()
 const sensorRegistryStore = useSensorRegistryStore()
+const simulationStore = useSimulationStore()
 
 const activeTab = ref<'registry' | 'formulas' | 'simulation' | 'sensors'>('registry')
 const editorDialog = ref(false)
 const formulaToEdit = ref<FormulaDefinition | null>(null)
-const simulationTargetFormulaId = ref<string>('POWER_EFFICIENCY_INDEX')
-const simulationTargetSensorId = ref<string>('sensor_000')
 
 const isDarkTheme = computed(() => theme.global.current.value.dark)
 
@@ -175,44 +175,22 @@ function openEditEditor(formula: FormulaDefinition) {
 }
 
 function onFormulaSaved(saved: FormulaDefinition) {
-  simulationTargetFormulaId.value = saved.id
+  simulationStore.prepareFormulaSimulation(saved)
 }
 
 function onSimulateFormula(formula: FormulaDefinition) {
-  simulationTargetFormulaId.value = formula.id
-  if (formula.targetSensor) {
-    simulationTargetSensorId.value = formula.targetSensor
-  }
+  simulationStore.prepareFormulaSimulation(formula)
   activeTab.value = 'simulation'
 }
 
 function onSelectSensorForSim(sensorId: string) {
-  simulationTargetSensorId.value = sensorId
+  simulationStore.prepareSensorSimulation(sensorId)
   activeTab.value = 'simulation'
 }
 
 function onSimulateRegistrySensor(sensor: SensorRegistryItem) {
-  if (sensor.sensorType === 'PHYSICAL') {
-    simulationTargetSensorId.value = String(sensor.serialNumber)
-    activeTab.value = 'simulation'
-  } else if (sensor.sensorType === 'FORMULA') {
-    const existing = formulaStore.getFormulaById(sensor.sensorCode)
-    if (!existing) {
-      const cleanId = sensor.sensorCode.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-      const created = formulaStore.addFormula({
-        id: cleanId,
-        name: sensor.sensorName,
-        expression: sensor.formulaExpression || 'value * 1.0',
-        category: (sensor.category as any) || 'Efficiency',
-        targetSensor: '10001',
-        description: sensor.description || 'Oracle Registered Formula Sensor',
-      })
-      simulationTargetFormulaId.value = created.id
-    } else {
-      simulationTargetFormulaId.value = existing.id
-    }
-    activeTab.value = 'simulation'
-  }
+  simulationStore.prepareRegistrySensorSimulation(sensor)
+  activeTab.value = 'simulation'
 }
 
 // Synchronize responsive layout on tab change

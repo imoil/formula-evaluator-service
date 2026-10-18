@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { FormulaDefinition } from '../types/formula'
-import { analyzeFormulaDependencies } from '../services/formulaEngine'
+import type { SensorRegistryItem } from '../types/sensorRegistry'
+import { analyzeFormulaDependencies, extractPrimarySensorId } from '../services/formulaEngine'
 
 const LOCAL_STORAGE_KEY = 'formula_evaluator_definitions_v1'
 
@@ -203,6 +204,31 @@ export const useFormulaStore = defineStore('formula', () => {
     return { importedCount: count }
   }
 
+  function ensureFormulaForRegistrySensor(sensor: SensorRegistryItem): FormulaDefinition {
+    const cleanId = sensor.sensorCode.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+    const existing = getFormulaById(sensor.sensorCode) || getFormulaById(cleanId)
+    const targetSensor = extractPrimarySensorId(sensor.formulaExpression, '10001')
+
+    if (existing) {
+      if (sensor.formulaExpression && existing.expression !== sensor.formulaExpression) {
+        updateFormula(existing.id, {
+          expression: sensor.formulaExpression,
+          targetSensor,
+        })
+      }
+      return getFormulaById(existing.id)!
+    }
+
+    return addFormula({
+      id: cleanId,
+      name: sensor.sensorName,
+      expression: sensor.formulaExpression || 'value * 1.0',
+      category: (sensor.category as any) || 'Efficiency',
+      targetSensor,
+      description: sensor.description || 'Oracle Registered Formula Sensor',
+    })
+  }
+
   // Initialize store
   loadFromStorage()
 
@@ -216,6 +242,7 @@ export const useFormulaStore = defineStore('formula', () => {
     updateFormula,
     deleteFormula,
     duplicateFormula,
+    ensureFormulaForRegistrySensor,
     resetToDefaults,
     exportJson,
     importJson,

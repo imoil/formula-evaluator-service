@@ -8,7 +8,6 @@ import type {
   DeviceSyncPayload,
 } from '../types/sensorRegistry';
 import { sensorRegistryApi } from '../services/sensorRegistryApi';
-import { useSensorStore } from './sensorStore';
 
 export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
   const sensors = ref<SensorRegistryItem[]>([]);
@@ -84,14 +83,6 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
 
       // Update next serial preview
       await fetchNextSerial();
-
-      // Synchronize with On-Demand Simulation sensor store
-      try {
-        const sensorStore = useSensorStore();
-        await sensorStore.loadSensors(true);
-      } catch {
-        // ignore in isolated unit tests
-      }
     } catch (err: unknown) {
       errorMessage.value = err instanceof Error ? err.message : '센서 목록 조회 실패';
     } finally {
@@ -115,15 +106,6 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
       const created = await sensorRegistryApi.createSensor(payload);
       sensors.value.push(created);
       await fetchNextSerial();
-
-      // Synchronize with On-Demand Simulation sensor store
-      try {
-        const sensorStore = useSensorStore();
-        await sensorStore.loadSensors(true);
-      } catch {
-        // ignore in tests
-      }
-
       return created;
     } catch (err: unknown) {
       errorMessage.value = err instanceof Error ? err.message : '센서 등록 실패';
@@ -145,15 +127,6 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
       if (idx !== -1) {
         sensors.value[idx] = updated;
       }
-
-      // Synchronize with On-Demand Simulation sensor store
-      try {
-        const sensorStore = useSensorStore();
-        await sensorStore.loadSensors(true);
-      } catch {
-        // ignore in tests
-      }
-
       return updated;
     } catch (err: unknown) {
       errorMessage.value = err instanceof Error ? err.message : '센서 수정 실패';
@@ -170,14 +143,6 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
       await sensorRegistryApi.deleteSensor(serialNumber);
       sensors.value = sensors.value.filter((s) => s.serialNumber !== serialNumber);
       await fetchNextSerial();
-
-      // Synchronize with On-Demand Simulation sensor store
-      try {
-        const sensorStore = useSensorStore();
-        await sensorStore.loadSensors(true);
-      } catch {
-        // ignore in tests
-      }
     } catch (err: unknown) {
       errorMessage.value = err instanceof Error ? err.message : '센서 삭제 실패';
       throw err;
