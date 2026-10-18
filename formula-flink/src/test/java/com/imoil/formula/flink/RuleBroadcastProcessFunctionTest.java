@@ -42,6 +42,8 @@ class RuleBroadcastProcessFunctionTest {
         // 2. 카프카 컨슈머로부터 리졸버를 거쳐 일련번호 "10001"로 변환된 SensorData 유입
         SensorData rawSensorData = SensorData.builder()
                 .sensorId("10001")
+                .deviceId("DEVICE-001")
+                .sensorIndex(0)
                 .timestamp(1005L)
                 .value(45.0)
                 .state(0)
@@ -56,12 +58,16 @@ class RuleBroadcastProcessFunctionTest {
         // 첫 번째 방출: 수식 계산된 파생 센서 (45.0 * 2.0 + 10.0 = 100.0)
         SensorData derived = output.get(0);
         assertThat(derived.getSensorId()).isEqualTo("10201");
+        assertThat(derived.getDeviceId()).isEqualTo("DEVICE-001");
+        assertThat(derived.getSensorIndex()).isEqualTo(0);
         assertThat(derived.getValue()).isEqualTo(100.0);
         assertThat(derived.getState()).isEqualTo(0);
 
         // 두 번째 방출: 원본 센서 데이터 (10001)
         SensorData raw = output.get(1);
         assertThat(raw.getSensorId()).isEqualTo("10001");
+        assertThat(raw.getDeviceId()).isEqualTo("DEVICE-001");
+        assertThat(raw.getSensorIndex()).isEqualTo(0);
         assertThat(raw.getValue()).isEqualTo(45.0);
 
         harness.close();

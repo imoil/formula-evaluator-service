@@ -131,6 +131,8 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
 
                 SensorData resultData = SensorData.builder()
                         .sensorId(derivedSensorId)
+                        .deviceId(value.getDeviceId())
+                        .sensorIndex(value.getSensorIndex())
                         .timestamp(value.getTimestamp())
                         .value(evaluatedResult)
                         .state(value.getState()) // 유지

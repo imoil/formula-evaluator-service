@@ -16,6 +16,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -87,7 +90,7 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
 
         // 1. QuestDB HTTP REST API 우선 질의 시도 (포트 9000 직접 연결)
         if (questDbHttpUrl != null && !questDbHttpUrl.isBlank()) {
-            boolean hasExplicitRange = (startTime != null && !startTime.isBlank() && !startTime.startsWith("2026-10-09"));
+            boolean hasExplicitRange = (startTime != null && !startTime.isBlank() && !startTime.startsWith("2026-10-09T20"));
             String httpSql;
             if (hasExplicitRange) {
                 httpSql = String.format(
@@ -113,8 +116,11 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
 
         // 2. JdbcTemplate 기반 질의 (Mock 단위 테스트 및 PGWire 연동 폴백 - Oracle 대상 실행 원천 차단)
         if (isQuestDbCompatibleJdbc(jdbcTemplate)) {
-            String effectiveStart = (startTime != null && !startTime.isBlank()) ? startTime : "2026-10-09T20:00:00Z";
-            String effectiveEnd = (endTime != null && !endTime.isBlank()) ? endTime : "2026-10-09T21:00:00Z";
+            LocalDateTime localNow = LocalDateTime.now();
+            String defaultStart = localNow.minusHours(1).format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+            String defaultEnd = localNow.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+            String effectiveStart = (startTime != null && !startTime.isBlank()) ? startTime : defaultStart;
+            String effectiveEnd = (endTime != null && !endTime.isBlank()) ? endTime : defaultEnd;
             String sql = """
                 SELECT
                     timestamp,
@@ -146,7 +152,7 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
         // 1. QuestDB HTTP REST API 조회 시도
         if (questDbHttpUrl != null && !questDbHttpUrl.isBlank()) {
             String httpSql = String.format(
-                    "SELECT timestamp, value, state, cast(has_inaccurate_data as int) as inaccurate " +
+                    "SELECT timestamp, value, state, cast(has_inaccurate_data as int) as inaccurate, device_id, sensor_index " +
                     "FROM sensor_data WHERE sensor_id = '%s' ORDER BY timestamp DESC LIMIT %d",
                     escapeSql(sensorId), l);
             try {
@@ -158,28 +164,67 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
             } catch (Exception e) {
                 log.debug("QuestDB HTTP latest query fallback for [{}]: {}", sensorId, e.getMessage());
             }
+
+            // 구 스키마 테이블 호환 폴백 (device_id, sensor_index 컬럼 미생성 시)
+            try {
+                String fallbackSql = String.format(
+                        "SELECT timestamp, value, state, cast(has_inaccurate_data as int) as inaccurate " +
+                        "FROM sensor_data WHERE sensor_id = '%s' ORDER BY timestamp DESC LIMIT %d",
+                        escapeSql(sensorId), l);
+                List<SensorData> fallbackResult = queryViaHttp(fallbackSql, sensorId);
+                if (fallbackResult != null) {
+                    Collections.reverse(fallbackResult);
+                    return fallbackResult;
+                }
+            } catch (Exception e) {
+                log.debug("QuestDB HTTP latest query legacy fallback for [{}]: {}", sensorId, e.getMessage());
+            }
         }
 
         // 2. JdbcTemplate 조회 폴백 (Oracle 대상 실행 원천 차단)
         if (isQuestDbCompatibleJdbc(jdbcTemplate)) {
-            String sql = """
-                SELECT
-                    timestamp,
-                    value as v,
-                    state as s,
-                    cast(has_inaccurate_data as int) as inaccurate
-                FROM sensor_data
-                WHERE sensor_id = ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-                """;
-            List<SensorData> list = new ArrayList<>(jdbcTemplate.query(
-                    sql,
-                    (rs, rowNum) -> mapRowToSensorData(rs, sensorId),
-                    sensorId, l
-            ));
-            Collections.reverse(list);
-            return list;
+            try {
+                String sql = """
+                    SELECT
+                        timestamp,
+                        value as v,
+                        state as s,
+                        cast(has_inaccurate_data as int) as inaccurate,
+                        device_id,
+                        sensor_index
+                    FROM sensor_data
+                    WHERE sensor_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """;
+                List<SensorData> list = new ArrayList<>(jdbcTemplate.query(
+                        sql,
+                        (rs, rowNum) -> mapRowToSensorData(rs, sensorId),
+                        sensorId, l
+                ));
+                Collections.reverse(list);
+                return list;
+            } catch (Exception ex) {
+                log.debug("QuestDB JDBC latest query with symbols failed, falling back: {}", ex.getMessage());
+                String fallbackSql = """
+                    SELECT
+                        timestamp,
+                        value as v,
+                        state as s,
+                        cast(has_inaccurate_data as int) as inaccurate
+                    FROM sensor_data
+                    WHERE sensor_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """;
+                List<SensorData> list = new ArrayList<>(jdbcTemplate.query(
+                        fallbackSql,
+                        (rs, rowNum) -> mapRowToSensorData(rs, sensorId),
+                        sensorId, l
+                ));
+                Collections.reverse(list);
+                return list;
+            }
         }
 
         return Collections.emptyList();
@@ -250,17 +295,44 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
             if (response.statusCode() == 200) {
                 JsonNode root = objectMapper.readTree(response.body());
                 JsonNode dataset = root.get("dataset");
+                JsonNode columnsNode = root.get("columns");
                 if (dataset != null && dataset.isArray()) {
+                    java.util.Map<String, Integer> colMap = new java.util.HashMap<>();
+                    if (columnsNode != null && columnsNode.isArray()) {
+                        for (int i = 0; i < columnsNode.size(); i++) {
+                            colMap.put(columnsNode.get(i).path("name").asText().toLowerCase(java.util.Locale.ROOT), i);
+                        }
+                    }
+
                     List<SensorData> list = new ArrayList<>(dataset.size());
                     for (JsonNode row : dataset) {
                         if (row.isArray() && row.size() >= 2) {
-                            long timestampMs = parseTimestampToMillis(row.get(0));
-                            double val = row.get(1).asDouble();
-                            int state = row.size() > 2 ? row.get(2).asInt() : 0;
-                            boolean inaccurate = row.size() > 3 && row.get(3).asInt() > 0;
+                            int tsIdx = colMap.getOrDefault("timestamp", 0);
+                            int valIdx = colMap.containsKey("v") ? colMap.get("v") : colMap.getOrDefault("value", 1);
+                            int stateIdx = colMap.containsKey("s") ? colMap.get("s") : colMap.getOrDefault("state", 2);
+                            int inaccIdx = colMap.getOrDefault("inaccurate", colMap.getOrDefault("has_inaccurate_data", 3));
+                            int devIdx = colMap.getOrDefault("device_id", -1);
+                            int sIdx = colMap.getOrDefault("sensor_index", -1);
+
+                            long timestampMs = parseTimestampToMillis(row.get(tsIdx));
+                            double val = row.get(valIdx).asDouble();
+                            int state = row.size() > stateIdx ? row.get(stateIdx).asInt() : 0;
+                            boolean inaccurate = row.size() > inaccIdx && row.get(inaccIdx).asInt() > 0;
+                            String deviceId = (devIdx >= 0 && row.size() > devIdx && !row.get(devIdx).isNull())
+                                    ? row.get(devIdx).asText()
+                                    : null;
+                            Integer sensorIndex = null;
+                            if (sIdx >= 0 && row.size() > sIdx && !row.get(sIdx).isNull()) {
+                                try {
+                                    sensorIndex = Integer.parseInt(row.get(sIdx).asText());
+                                } catch (NumberFormatException ignored) {
+                                }
+                            }
 
                             list.add(SensorData.builder()
                                     .sensorId(sensorId)
+                                    .deviceId(deviceId)
+                                    .sensorIndex(sensorIndex)
                                     .timestamp(timestampMs)
                                     .value(val)
                                     .state(state)
@@ -287,10 +359,27 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
             long n = node.asLong();
             return n > 1_000_000_000_000_000L ? n / 1_000_000L : n;
         }
+        String text = node.asText().trim();
         try {
-            return Instant.parse(node.asText()).toEpochMilli();
+            if (text.endsWith("Z") || text.contains("+")) {
+                return Instant.parse(text).toEpochMilli();
+            }
+            // 로컬 데이트 타임 포맷 지원 (시스템 기본 로컬 타임존)
+            LocalDateTime ldt;
+            if (text.contains("T")) {
+                ldt = LocalDateTime.parse(text);
+            } else if (text.contains(" ")) {
+                ldt = LocalDateTime.parse(text, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } else {
+                ldt = LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            }
+            return ldt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
         } catch (Exception e) {
-            return System.currentTimeMillis();
+            try {
+                return Instant.parse(text).toEpochMilli();
+            } catch (Exception ex) {
+                return System.currentTimeMillis();
+            }
         }
     }
 
@@ -304,11 +393,26 @@ public class QuestDBDataSourceAdapter implements TimeSeriesDataSourceAdapter {
         boolean hasInaccurateData = false;
         try {
             hasInaccurateData = rs.getInt("inaccurate") > 0;
-        } catch (SQLException e) {
-            // 컬럼이 없는 경우 무시
+        } catch (SQLException ignored) {
         }
+        String deviceId = null;
+        try {
+            deviceId = rs.getString("device_id");
+        } catch (SQLException ignored) {
+        }
+        Integer sensorIndex = null;
+        try {
+            int idx = rs.getInt("sensor_index");
+            if (!rs.wasNull()) {
+                sensorIndex = idx;
+            }
+        } catch (SQLException ignored) {
+        }
+
         return SensorData.builder()
                 .sensorId(sensorId)
+                .deviceId(deviceId)
+                .sensorIndex(sensorIndex)
                 .timestamp(timestampMillis)
                 .value(rs.getDouble("v"))
                 .state(rs.getInt("s"))

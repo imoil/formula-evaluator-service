@@ -139,4 +139,40 @@ class QuestDBQueryRepositoryTest {
         assertThat(result).isEmpty();
         verify(jdbcTemplate, org.mockito.Mockito.never()).query(anyString(), any(RowMapper.class), anyString(), anyString(), anyString());
     }
+
+    @Test
+    @DisplayName("fetchLatestPoints 실행 시 device_id와 sensor_index symbol을 포함한 쿼리가 우선 실행된다")
+    void fetchLatestPoints_ShouldIncludeDeviceAndSensorIndexSymbols() throws Exception {
+        // Given
+        String sensorId = "10001";
+        java.sql.ResultSet rs = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+        org.mockito.Mockito.when(rs.getTimestamp("timestamp")).thenReturn(new java.sql.Timestamp(1729260000000L));
+        org.mockito.Mockito.when(rs.getDouble("v")).thenReturn(45.5);
+        org.mockito.Mockito.when(rs.getInt("s")).thenReturn(0);
+        org.mockito.Mockito.when(rs.getInt("inaccurate")).thenReturn(0);
+        org.mockito.Mockito.when(rs.getString("device_id")).thenReturn("DEVICE-001");
+        org.mockito.Mockito.when(rs.getInt("sensor_index")).thenReturn(0);
+        org.mockito.Mockito.when(rs.wasNull()).thenReturn(false);
+
+        org.mockito.Mockito.when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(sensorId), eq(5)))
+                .thenAnswer(invocation -> {
+                    RowMapper<?> mapper = invocation.getArgument(1);
+                    return java.util.List.of(mapper.mapRow(rs, 0));
+                });
+
+        // When
+        var points = repository.fetchLatestPoints(sensorId, 5);
+
+        // Then
+        assertThat(points).hasSize(1);
+        var data = points.get(0);
+        assertThat(data.getSensorId()).isEqualTo("10001");
+        assertThat(data.getDeviceId()).isEqualTo("DEVICE-001");
+        assertThat(data.getSensorIndex()).isEqualTo(0);
+        assertThat(data.getValue()).isEqualTo(45.5);
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(sensorId), eq(5));
+        assertThat(sqlCaptor.getValue()).contains("device_id").contains("sensor_index");
+    }
 }

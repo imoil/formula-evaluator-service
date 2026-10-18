@@ -14,6 +14,8 @@ public interface SensorDataWriter extends AutoCloseable {
 
     String TABLE_SENSOR_DATA = "sensor_data";
     String COL_SENSOR_ID = "sensor_id";
+    String COL_DEVICE_ID = "device_id";
+    String COL_SENSOR_INDEX = "sensor_index";
     String COL_STATE = "state";
     String COL_VALUE = "value";
     String COL_HAS_INACCURATE_DATA = "has_inaccurate_data";
@@ -122,8 +124,17 @@ public interface SensorDataWriter extends AutoCloseable {
 
         private void writeRowUnlocked(SensorData data) {
             sender.table(TABLE_SENSOR_DATA)
-                    .symbol(COL_SENSOR_ID, data.getSensorId())
-                    .longColumn(COL_STATE, data.getState())
+                    .symbol(COL_SENSOR_ID, data.getSensorId() != null ? data.getSensorId() : "");
+
+            if (data.getDeviceId() != null && !data.getDeviceId().isBlank()) {
+                sender.symbol(COL_DEVICE_ID, data.getDeviceId());
+            }
+
+            if (data.getSensorIndex() != null) {
+                sender.symbol(COL_SENSOR_INDEX, String.valueOf(data.getSensorIndex()));
+            }
+
+            sender.longColumn(COL_STATE, data.getState())
                     .doubleColumn(COL_VALUE, data.getValue())
                     .boolColumn(COL_HAS_INACCURATE_DATA, data.isHasInaccurateData())
                     .at(toEpochNanos(data.getTimestamp()), ChronoUnit.NANOS);

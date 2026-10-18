@@ -16,6 +16,9 @@ import org.apache.kafka.common.header.Header;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -81,10 +84,20 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
         long timestamp = record.timestamp();
         Header timestampHeader = record.headers() != null ? record.headers().lastHeader(HEADER_TIMESTAMP) : null;
         if (timestampHeader != null && timestampHeader.value() != null) {
+            String tsStr = new String(timestampHeader.value(), StandardCharsets.UTF_8).trim();
             try {
-                timestamp = Long.parseLong(new String(timestampHeader.value(), StandardCharsets.UTF_8));
-            } catch (NumberFormatException ignored) {
-                // record.timestamp() fallback
+                timestamp = Long.parseLong(tsStr);
+            } catch (NumberFormatException e) {
+                try {
+                    if (tsStr.contains("T")) {
+                        timestamp = LocalDateTime.parse(tsStr).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                    } else if (tsStr.contains(" ")) {
+                        timestamp = LocalDateTime.parse(tsStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                    }
+                } catch (Exception ignored) {
+                    // fallback to record.timestamp()
+                }
             }
         }
         if (timestamp <= 0) {
@@ -98,17 +111,21 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
         }
 
         try {
-            // Case A: JSON 배열인 경우 (에뮬레이터 기본 바디 포맷: [ {sensorIndex, value, status}, ... ])
+            // Case A: JSON 배열인 경우 (에뮬레이터 배치 바디 포맷: [ {sensorIndex, value, status}, ... ])
             if (jsonString.startsWith("[")) {
                 List<SensorItem> items = mapper.readValue(jsonString, new TypeReference<>() {});
                 emitSensorItems(items, deviceId, timestamp, out);
                 return;
             }
 
-            // Case B: JSON 객체인 경우 (Envelope 또는 단일 SensorData)
+            // Case B: JSON 객체인 경우 (단일 센서, Envelope, 또는 단일 SensorData)
             JsonNode rootNode = mapper.readTree(jsonString);
 
-            if (rootNode.has("body") && rootNode.get("body").isArray()) {
+            if (rootNode.has("sensorIndex")) {
+                // 단일 센서 전송 (모아서 전송하지 않고 1초마다 개별 전송된 실제 IoT 센서 레코드)
+                SensorItem item = mapper.treeToValue(rootNode, SensorItem.class);
+                emitSensorItems(List.of(item), deviceId, timestamp, out);
+            } else if (rootNode.has("body") && rootNode.get("body").isArray()) {
                 // Envelope 포맷: { "header": { "deviceId": "...", "timestamp": ... }, "body": [ ... ] }
                 if (rootNode.has("header")) {
                     JsonNode headerNode = rootNode.get("header");
@@ -127,6 +144,9 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
                 SensorData singleData = mapper.treeToValue(rootNode, SensorData.class);
                 if (singleData.getTimestamp() <= 0) {
                     singleData.setTimestamp(timestamp);
+                }
+                if (singleData.getDeviceId() == null) {
+                    singleData.setDeviceId(deviceId);
                 }
                 out.collect(singleData);
             } else {
@@ -151,6 +171,8 @@ public class DeviceSensorRecordDeserializer implements KafkaRecordDeserializatio
 
             SensorData sensorData = SensorData.builder()
                     .sensorId(sensorId)
+                    .deviceId(deviceId)
+                    .sensorIndex(item.getSensorIndex())
                     .timestamp(timestamp)
                     .value(item.getValue())
                     .state(state)

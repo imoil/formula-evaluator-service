@@ -207,7 +207,7 @@ public class MockSensorCatalogService {
         SensorMeta meta = getSensorMeta(sensorId);
 
         int durationSeconds = criteria.getLimit() > 0 ? criteria.getLimit() : 3600;
-        long baseTimeMs = 1791576000000L; // 2026-10-09T20:00:00Z 기준
+        long baseTimeMs = parseStartTime(criteria.getStartTime(), durationSeconds);
 
         long seed = 42L;
         for (char c : sensorId.toCharArray()) {
@@ -240,6 +240,8 @@ public class MockSensorCatalogService {
 
             points.add(SensorData.builder()
                     .sensorId(sensorId)
+                    .deviceId(meta.getDeviceId())
+                    .sensorIndex(meta.getDeviceSensorIndex())
                     .timestamp(timestampMs)
                     .value(val)
                     .state(state)
@@ -268,11 +270,36 @@ public class MockSensorCatalogService {
 
         return SensorData.builder()
                 .sensorId(sensorId)
+                .deviceId(meta.getDeviceId())
+                .sensorIndex(meta.getDeviceSensorIndex())
                 .timestamp(now)
                 .value(val)
                 .state(0)
                 .hasInaccurateData(false)
                 .build();
+    }
+
+    private long parseStartTime(String startTime, int durationSeconds) {
+        if (startTime != null && !startTime.isBlank()) {
+            try {
+                String trimmed = startTime.trim();
+                if (trimmed.endsWith("Z") || trimmed.contains("+")) {
+                    return java.time.Instant.parse(trimmed).toEpochMilli();
+                }
+                java.time.LocalDateTime ldt;
+                if (trimmed.contains("T")) {
+                    ldt = java.time.LocalDateTime.parse(trimmed);
+                } else if (trimmed.contains(" ")) {
+                    ldt = java.time.LocalDateTime.parse(trimmed, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                } else {
+                    ldt = java.time.LocalDateTime.parse(trimmed, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                }
+                return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            } catch (Exception ignored) {
+            }
+        }
+        return java.time.LocalDateTime.now().minusSeconds(durationSeconds)
+                .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 }
 
