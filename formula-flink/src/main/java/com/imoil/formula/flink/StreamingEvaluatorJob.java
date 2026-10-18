@@ -3,6 +3,7 @@ package com.imoil.formula.flink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.imoil.formula.domain.DynamicRule;
 import com.imoil.formula.domain.SensorData;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.state.MapStateDescriptor;
@@ -15,10 +16,21 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.BroadcastStream;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.common.errors.TopicExistsException;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Flink Streaming Job 메인 클래스
  */
+@Slf4j
 public class StreamingEvaluatorJob {
 
     public static void main(String[] args) throws Exception {
@@ -36,11 +48,19 @@ public class StreamingEvaluatorJob {
         env.getCheckpointConfig().setTolerableCheckpointFailureNumber(AppConstants.TOLERABLE_CHECKPOINT_FAILURE_NUMBER);
 
         String kafkaBootstrapServers = parameters.get(AppConstants.ARG_KAFKA_BOOTSTRAP_SERVERS, AppConstants.KAFKA_BOOTSTRAP_SERVERS_DEFAULT);
-        
+        String sensorTopic = parameters.get(AppConstants.ARG_KAFKA_TOPIC_SENSOR, AppConstants.KAFKA_TOPIC_SENSOR_DATA_DEFAULT);
+        String ruleTopic = parameters.get(AppConstants.ARG_KAFKA_TOPIC_RULE, AppConstants.KAFKA_TOPIC_RULE_DATA_DEFAULT);
+        long retentionTimeMinutes = parameters.getLong(AppConstants.ARG_RETENTION_TIME_MINUTES, AppConstants.RETENTION_TIME_MINUTES_DEFAULT);
+
+        ensureTopicsExist(kafkaBootstrapServers, List.of(sensorTopic, ruleTopic));
+        log.info("Connected to Kafka broker at {}", kafkaBootstrapServers);
+        log.info("Subscribed to topics: {}, {}", sensorTopic, ruleTopic);
+        log.info("Initialized RocksDB StateBackend with window TTL {}m", retentionTimeMinutes);
+
         // Sensor Data Kafka Source: 카프카 헤더(장치명, 전송시각)와 바디(센서 JSON 배열)를 지원하는 디시리얼라이저 사용
         KafkaSource<SensorData> sensorKafkaSource = KafkaSource.<SensorData>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
-                .setTopics(parameters.get(AppConstants.ARG_KAFKA_TOPIC_SENSOR, AppConstants.KAFKA_TOPIC_SENSOR_DATA_DEFAULT))
+                .setTopics(sensorTopic)
                 .setGroupId(parameters.get(AppConstants.ARG_KAFKA_GROUP_SENSOR, AppConstants.KAFKA_GROUP_ID_SENSOR_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setDeserializer(new DeviceSensorRecordDeserializer())
@@ -49,7 +69,7 @@ public class StreamingEvaluatorJob {
         // Rule 메타데이터 Kafka Source
         KafkaSource<String> ruleKafkaSource = KafkaSource.<String>builder()
                 .setBootstrapServers(kafkaBootstrapServers)
-                .setTopics(parameters.get(AppConstants.ARG_KAFKA_TOPIC_RULE, AppConstants.KAFKA_TOPIC_RULE_DATA_DEFAULT))
+                .setTopics(ruleTopic)
                 .setGroupId(parameters.get(AppConstants.ARG_KAFKA_GROUP_RULE, AppConstants.KAFKA_GROUP_ID_RULE_DEFAULT))
                 .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
@@ -69,9 +89,8 @@ public class StreamingEvaluatorJob {
         BroadcastStream<DynamicRule> broadcastRuleStream = ruleStream.broadcast(ruleStateDescriptor);
 
         // 분산 처리와 상태 저장을 위한 센서 ID 기반 KeyBy 및 브로드캐스트 연결
-        long retentionTimeMinutes = parameters.getLong(AppConstants.ARG_RETENTION_TIME_MINUTES, AppConstants.RETENTION_TIME_MINUTES_DEFAULT);
         DataStream<SensorData> evaluatedStream = sensorStream
-                .keyBy(SensorData::getSensorId) 
+                .keyBy(SensorData::getSensorId)
                 .connect(broadcastRuleStream)
                 .process(new RuleBroadcastProcessFunction(retentionTimeMinutes));
 
@@ -81,4 +100,31 @@ public class StreamingEvaluatorJob {
 
         env.execute(AppConstants.JOB_NAME);
     }
+
+    private static void ensureTopicsExist(String bootstrapServers, List<String> topics) {
+        Map<String, Object> adminProps = Map.of(
+                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
+                AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 5000,
+                AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 5000
+        );
+        try (AdminClient adminClient = AdminClient.create(adminProps)) {
+            Set<String> existingTopics = adminClient.listTopics().names().get(5, TimeUnit.SECONDS);
+            List<NewTopic> missingTopics = topics.stream()
+                    .filter(topic -> !existingTopics.contains(topic))
+                    .distinct()
+                    .map(topic -> new NewTopic(topic, 1, (short) 1))
+                    .toList();
+            if (!missingTopics.isEmpty()) {
+                adminClient.createTopics(missingTopics).all().get(5, TimeUnit.SECONDS);
+                log.info("Created missing Kafka topics: {}", missingTopics.stream().map(NewTopic::name).toList());
+            }
+        } catch (ExecutionException e) {
+            if (!(e.getCause() instanceof TopicExistsException)) {
+                log.warn("Could not pre-create Kafka topics {} at {}: {}", topics, bootstrapServers, e.getMessage());
+            }
+        } catch (Exception e) {
+            log.warn("Could not verify Kafka topics {} at {}: {}", topics, bootstrapServers, e.getMessage());
+        }
+    }
 }
+

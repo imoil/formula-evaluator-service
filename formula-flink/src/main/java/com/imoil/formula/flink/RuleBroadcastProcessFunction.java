@@ -83,6 +83,9 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         ruleHitCounter = metricGroup.counter("ruleEvaluationHits");
         ruleMissCounter = metricGroup.counter("ruleEvaluationMisses");
         ruleErrorCounter = metricGroup.counter("ruleEvaluationErrors");
+        if (getRuntimeContext().getTaskInfo().getIndexOfThisSubtask() == 0) {
+            log.info("RuleBroadcastProcessFunction ready to accept broadcast rules");
+        }
     }
 
     @Override
@@ -160,6 +163,10 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
                 String canonicalTarget = rule.canonicalTargetSerialId();
                 if (canonicalTarget != null && !canonicalTarget.isBlank()) {
                     broadcastState.put(canonicalTarget, rule);
+                    if (getRuntimeContext().getTaskInfo().getIndexOfThisSubtask() == 0) {
+                        log.info("[Broadcast Rule Updated] ruleId={}, targetSensorId={}, expr={}",
+                                rule.getRuleId(), canonicalTarget, expr);
+                    }
                 }
             } catch (Exception e) {
                 log.error("Invalid or unsafe rule expression received for target sensor: {}", rule.getTargetSensorId(), e);
