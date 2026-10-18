@@ -7,7 +7,11 @@ import type {
   UpdateSensorPayload,
   DeviceSyncPayload,
 } from '../types/sensorRegistry';
-import { sensorRegistryApi } from '../services/sensorRegistryApi';
+import {
+  sensorRegistryApi,
+  getDefaultPhysicalSeedPayloads,
+  getDefaultFormulaSeedPayloads,
+} from '../services/sensorRegistryApi';
 
 export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
   const sensors = ref<SensorRegistryItem[]>([]);
@@ -15,6 +19,7 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
   const syncingRules = ref<boolean>(false);
   const isBackendConnected = ref<boolean>(false);
   const errorMessage = ref<string | null>(null);
+  const hasEnsuredDefaultSeed = ref<boolean>(false);
 
   const searchQuery = ref<string>('');
   const typeFilter = ref<SensorType | 'ALL'>('ALL');
@@ -73,11 +78,45 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      const res = await sensorRegistryApi.fetchSensors({
+      let res = await sensorRegistryApi.fetchSensors({
         type: typeFilter.value !== 'ALL' ? typeFilter.value : undefined,
         deviceId: deviceFilter.value !== 'ALL' ? deviceFilter.value : undefined,
         keyword: searchQuery.value || undefined,
       });
+
+      const isUnfiltered =
+        typeFilter.value === 'ALL' &&
+        deviceFilter.value === 'ALL' &&
+        !searchQuery.value.trim();
+
+      if (res.isBackend && isUnfiltered && !hasEnsuredDefaultSeed.value) {
+        hasEnsuredDefaultSeed.value = true;
+        const hasPhysical = res.data.some((s) => s.sensorType === 'PHYSICAL');
+        const hasFormula = res.data.some((s) => s.sensorType === 'FORMULA');
+
+        if (!hasPhysical || !hasFormula) {
+          if (!hasPhysical) {
+            for (const payload of getDefaultPhysicalSeedPayloads()) {
+              try {
+                await sensorRegistryApi.createSensor(payload);
+              } catch {
+                // ignore duplicate seed error
+              }
+            }
+          }
+          if (!hasFormula) {
+            for (const payload of getDefaultFormulaSeedPayloads()) {
+              try {
+                await sensorRegistryApi.createSensor(payload);
+              } catch {
+                // ignore duplicate seed error
+              }
+            }
+          }
+          res = await sensorRegistryApi.fetchSensors();
+        }
+      }
+
       sensors.value = res.data;
       isBackendConnected.value = res.isBackend;
 
@@ -113,6 +152,35 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  async function duplicateFormulaSensor(
+    sensorOrSerial: SensorRegistryItem | number
+  ): Promise<SensorRegistryItem> {
+    const sensor =
+      typeof sensorOrSerial === 'number'
+        ? sensors.value.find((s) => s.serialNumber === sensorOrSerial)
+        : sensorOrSerial;
+    if (!sensor || sensor.sensorType !== 'FORMULA') {
+      throw new Error('Only formula sensors can be duplicated as formulas.');
+    }
+    const baseCode = sensor.sensorCode.replace(/[^A-Za-z0-9_-]/g, '_');
+    let suffix = 1;
+    let candidateCode = `${baseCode}_COPY`;
+    while (sensors.value.some((s) => s.sensorCode.toUpperCase() === candidateCode.toUpperCase())) {
+      suffix++;
+      candidateCode = `${baseCode}_COPY_${suffix}`;
+    }
+    return createSensor({
+      sensorCode: candidateCode,
+      sensorName: `${sensor.sensorName} (Copy)`,
+      sensorType: 'FORMULA',
+      category: sensor.category ?? undefined,
+      unit: sensor.unit ?? undefined,
+      formulaExpression: sensor.formulaExpression || 'value * 1.0',
+      description: sensor.description ?? undefined,
+      status: sensor.status,
+    });
   }
 
   async function updateSensor(
@@ -201,9 +269,11 @@ export const useSensorRegistryStore = defineStore('sensorRegistry', () => {
     fetchSensors,
     fetchNextSerial,
     createSensor,
+    duplicateFormulaSensor,
     updateSensor,
     deleteSensor,
     syncDeviceSensors,
     syncRulesToFlink,
   };
 });
+

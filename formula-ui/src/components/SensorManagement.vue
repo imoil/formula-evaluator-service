@@ -1,16 +1,21 @@
 <template>
   <div class="sensor-management">
-    <!-- Top KPI Cards -->
+    <!-- Top KPI Cards (Click to filter by sensor type) -->
     <v-row class="mb-4">
       <v-col cols="12" sm="6" md="3">
-        <v-card class="border elevation-0" rounded="lg">
+        <v-card
+          class="border elevation-0 cursor-pointer"
+          :class="{ 'border-primary': store.typeFilter === 'ALL' }"
+          rounded="lg"
+          @click="store.typeFilter = 'ALL'"
+        >
           <v-card-text class="d-flex align-center">
             <v-avatar color="primary" variant="tonal" rounded="lg" size="48" class="mr-3">
               <v-icon color="primary">mdi-numeric</v-icon>
             </v-avatar>
             <div>
               <div class="text-caption text-medium-emphasis font-weight-medium">
-                Global Serial Sensors
+                Global Serial Sensors (All)
               </div>
               <div class="text-h5 font-weight-bold text-primary">
                 {{ store.totalCount }}
@@ -24,7 +29,12 @@
       </v-col>
 
       <v-col cols="12" sm="6" md="3">
-        <v-card class="border elevation-0" rounded="lg">
+        <v-card
+          class="border elevation-0 cursor-pointer"
+          :class="{ 'border-primary': store.typeFilter === 'PHYSICAL' }"
+          rounded="lg"
+          @click="store.typeFilter = 'PHYSICAL'"
+        >
           <v-card-text class="d-flex align-center">
             <v-avatar color="indigo" variant="tonal" rounded="lg" size="48" class="mr-3">
               <v-icon color="indigo">mdi-devices</v-icon>
@@ -37,7 +47,7 @@
                 {{ store.physicalCount }}
               </div>
               <div class="text-caption text-medium-emphasis">
-                Collision Disambiguated
+                Click to filter physical sensors
               </div>
             </div>
           </v-card-text>
@@ -45,7 +55,12 @@
       </v-col>
 
       <v-col cols="12" sm="6" md="3">
-        <v-card class="border elevation-0" rounded="lg">
+        <v-card
+          class="border elevation-0 cursor-pointer"
+          :class="{ 'border-primary': store.typeFilter === 'FORMULA' }"
+          rounded="lg"
+          @click="store.typeFilter = 'FORMULA'"
+        >
           <v-card-text class="d-flex align-center">
             <v-avatar color="teal" variant="tonal" rounded="lg" size="48" class="mr-3">
               <v-icon color="teal">mdi-function-variant</v-icon>
@@ -58,7 +73,7 @@
                 {{ store.formulaCount }}
               </div>
               <div class="text-caption text-medium-emphasis">
-                Integrated Serial Numbered
+                Click to filter formula sensors
               </div>
             </div>
           </v-card-text>
@@ -96,7 +111,7 @@
             <v-text-field
               v-model="store.searchQuery"
               prepend-inner-icon="mdi-magnify"
-              label="Search by Serial (#), Code, Name, IoT Device..."
+              label="Search by Serial (#), Code, Name, Expression, Device..."
               variant="outlined"
               density="compact"
               hide-details
@@ -143,14 +158,14 @@
               </template>
               <v-list density="compact">
                 <v-list-item
+                  prepend-icon="mdi-function-variant"
+                  title="Add Formula Sensor"
+                  @click="openCreateModal('FORMULA')"
+                />
+                <v-list-item
                   prepend-icon="mdi-memory"
                   title="Add IoT Physical Sensor"
                   @click="openCreateModal('PHYSICAL')"
-                />
-                <v-list-item
-                  prepend-icon="mdi-function"
-                  title="Add Formula Sensor"
-                  @click="openCreateModal('FORMULA')"
                 />
               </v-list>
             </v-menu>
@@ -203,12 +218,12 @@
             <th style="width: 110px">Serial No</th>
             <th>Sensor Code & Name</th>
             <th style="width: 140px">Type</th>
-            <th style="width: 180px">IoT Device / Index</th>
-            <th>Formula / Expression</th>
-            <th style="width: 140px">Category</th>
-            <th style="width: 90px">Unit</th>
+            <th style="width: 180px">IoT Device / Target</th>
+            <th>Formula Expression & Dependencies</th>
+            <th style="width: 130px">Category</th>
+            <th style="width: 80px">Unit</th>
             <th style="width: 100px">Status</th>
-            <th style="width: 150px" class="text-right">Actions</th>
+            <th style="width: 170px" class="text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -230,7 +245,7 @@
               >
                 #{{ sensor.serialNumber }}
                 <v-tooltip activator="parent" location="top">
-                  Click to copy Serial Number #{{ sensor.serialNumber }}
+                  Click to copy Serial Number #{{ sensor.serialNumber }} (SN_{{ sensor.serialNumber }})
                 </v-tooltip>
               </v-chip>
             </td>
@@ -240,6 +255,9 @@
               <div class="font-weight-medium text-body-2">{{ sensor.sensorName }}</div>
               <div class="text-caption text-medium-emphasis font-family-monospace">
                 {{ sensor.sensorCode }}
+              </div>
+              <div v-if="sensor.description" class="text-caption text-disabled text-truncate" style="max-width: 260px">
+                {{ sensor.description }}
               </div>
             </td>
 
@@ -258,7 +276,7 @@
               </v-chip>
             </td>
 
-            <!-- Device ID & Device Sensor Index -->
+            <!-- Device ID & Device Sensor Index / Formula Target -->
             <td>
               <div v-if="sensor.sensorType === 'PHYSICAL'" class="d-flex align-center">
                 <v-icon size="16" color="indigo" class="mr-1">mdi-router-wireless</v-icon>
@@ -267,15 +285,71 @@
                   Index #{{ sensor.deviceSensorIndex }}
                 </v-chip>
               </div>
-              <div v-else class="text-caption text-medium-emphasis italic">
-                Virtual (Formula)
+              <div v-else class="d-flex flex-column gap-1">
+                <span class="text-caption text-medium-emphasis">
+                  Virtual (Derived: #{{ sensor.serialNumber }})
+                </span>
+                <v-chip
+                  size="x-small"
+                  variant="outlined"
+                  color="teal"
+                  style="width: fit-content"
+                >
+                  Target: #{{ getPrimaryTargetSerial(sensor.formulaExpression) }}
+                </v-chip>
               </div>
             </td>
 
-            <!-- Formula Expression -->
+            <!-- Formula Expression & Dependency Composition -->
             <td>
-              <div v-if="sensor.sensorType === 'FORMULA'" class="formula-code-preview">
-                <code>{{ sensor.formulaExpression }}</code>
+              <div v-if="sensor.sensorType === 'FORMULA'" class="py-1">
+                <div class="formula-code-preview d-flex align-center">
+                  <code>{{ sensor.formulaExpression }}</code>
+                  <v-btn
+                    icon="mdi-content-copy"
+                    size="x-small"
+                    variant="text"
+                    class="ml-1"
+                    @click="copyExpression(sensor.formulaExpression || '')"
+                  />
+                </div>
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                  <template v-if="getSensorDeps(sensor).referencedFormulas.length > 0">
+                    <v-chip
+                      v-for="subId in getSensorDeps(sensor).referencedFormulas"
+                      :key="subId"
+                      size="x-small"
+                      color="primary"
+                      variant="flat"
+                    >
+                      <v-icon start size="10">mdi-link-variant</v-icon>
+                      Calls: {{ subId }}
+                    </v-chip>
+                  </template>
+                  <template v-if="getSensorDeps(sensor).referencedSensors.length > 0">
+                    <v-chip
+                      v-for="sId in getSensorDeps(sensor).referencedSensors"
+                      :key="sId"
+                      size="x-small"
+                      color="secondary"
+                      variant="tonal"
+                    >
+                      <v-icon start size="10">mdi-access-point</v-icon>
+                      #{{ sId }}
+                    </v-chip>
+                  </template>
+                  <template v-if="getSensorDeps(sensor).dependentFormulas.length > 0">
+                    <v-chip
+                      v-for="parent in getSensorDeps(sensor).dependentFormulas"
+                      :key="parent"
+                      size="x-small"
+                      color="teal"
+                      variant="outlined"
+                    >
+                      Used by: {{ parent }}
+                    </v-chip>
+                  </template>
+                </div>
               </div>
               <div v-else class="text-caption text-disabled">
                 — (Raw Physical Signal)
@@ -305,7 +379,7 @@
               </v-chip>
             </td>
 
-            <!-- Actions (Simulate On-Demand, Edit, Delete) -->
+            <!-- Actions (Simulate On-Demand, Duplicate, Edit, Delete) -->
             <td class="text-right">
               <v-tooltip text="Run On-Demand Telemetry Simulation" location="top">
                 <template #activator="{ props }">
@@ -316,6 +390,18 @@
                     color="success"
                     v-bind="props"
                     @click="simulateSensor(sensor)"
+                  />
+                </template>
+              </v-tooltip>
+              <v-tooltip v-if="sensor.sensorType === 'FORMULA'" text="Duplicate Formula Sensor" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    icon="mdi-content-copy"
+                    variant="text"
+                    size="small"
+                    color="secondary"
+                    v-bind="props"
+                    @click="duplicateFormula(sensor)"
                   />
                 </template>
               </v-tooltip>
@@ -340,7 +426,7 @@
     </v-card>
 
     <!-- Create / Edit Sensor Dialog -->
-    <v-dialog v-model="formDialog" max-width="650px" persistent>
+    <v-dialog v-model="formDialog" max-width="760px" persistent>
       <v-card rounded="lg">
         <v-card-title class="px-6 pt-5 pb-2 font-weight-bold d-flex align-center">
           <v-icon
@@ -349,7 +435,7 @@
           >
             {{ isEditing ? 'mdi-pencil' : (formType === 'PHYSICAL' ? 'mdi-chip' : 'mdi-function-variant') }}
           </v-icon>
-          {{ isEditing ? 'Edit Sensor' : (formType === 'PHYSICAL' ? 'Register IoT Physical Sensor' : 'Create Formula Sensor') }}
+          {{ isEditing ? (formType === 'FORMULA' ? 'Edit Formula Sensor' : 'Edit Physical Sensor') : (formType === 'PHYSICAL' ? 'Register IoT Physical Sensor' : 'Create Formula Sensor') }}
           <v-spacer />
           <v-chip size="small" color="primary" variant="tonal" v-if="!isEditing">
             Next Serial: #{{ store.nextSerialPreview }}
@@ -363,13 +449,13 @@
           <!-- Type switch when creating -->
           <div v-if="!isEditing" class="mb-4">
             <v-tabs v-model="formType" color="primary" density="compact" grow>
-              <v-tab value="PHYSICAL">
-                <v-icon start>mdi-chip</v-icon>
-                IoT Physical Sensor
-              </v-tab>
               <v-tab value="FORMULA">
                 <v-icon start>mdi-function-variant</v-icon>
                 Formula Sensor
+              </v-tab>
+              <v-tab value="PHYSICAL">
+                <v-icon start>mdi-chip</v-icon>
+                IoT Physical Sensor
               </v-tab>
             </v-tabs>
           </div>
@@ -405,49 +491,145 @@
                 </v-col>
               </template>
 
-              <!-- Formula Sensor specific fields -->
-              <template v-if="formType === 'FORMULA'">
-                <v-col cols="12">
-                  <v-text-field
-                    v-model="formFormulaExpression"
-                    label="Formula Expression (Referencing Serial #) *"
-                    placeholder="e.g. SN_10001 * 1.8 + 32, (SN_10002 - SN_10004) / 10"
-                    variant="outlined"
-                    density="comfortable"
-                    :rules="[v => !!v || 'Formula expression is required']"
-                  />
-                </v-col>
-                <v-col cols="12" class="mb-2">
-                  <div class="text-caption text-medium-emphasis mb-1">
-                    Quick Reference: Click to insert sensor serial number into formula:
-                  </div>
-                  <div class="d-flex flex-wrap gap-1">
-                    <v-chip
-                      v-for="s in store.sensors.slice(0, 8)"
-                      :key="s.serialNumber"
-                      size="x-small"
-                      variant="outlined"
-                      color="primary"
-                      class="cursor-pointer"
-                      @click="insertSerialToFormula(s.serialNumber)"
-                    >
-                      #{{ s.serialNumber }} ({{ s.sensorName.split(' ')[0] }})
-                    </v-chip>
-                  </div>
-                </v-col>
-              </template>
-
-              <!-- Common fields -->
-              <v-col cols="12">
+              <!-- Common Name & Code fields -->
+              <v-col cols="12" :sm="formType === 'FORMULA' ? 7 : 12">
                 <v-text-field
                   v-model="formSensorName"
                   label="Sensor Name *"
-                  placeholder="e.g. Main Bearing Temperature"
+                  :placeholder="formType === 'FORMULA' ? 'e.g. Exhaust Temp (°F)' : 'e.g. Main Bearing Temperature'"
                   variant="outlined"
                   density="comfortable"
                   :rules="[v => !!v || 'Sensor name is required']"
                 />
               </v-col>
+
+              <v-col v-if="formType === 'FORMULA'" cols="12" sm="5">
+                <v-text-field
+                  v-model="formSensorCode"
+                  label="Formula Code (Optional)"
+                  placeholder="e.g. TEMP_FAHRENHEIT"
+                  variant="outlined"
+                  density="comfortable"
+                  :disabled="isEditing"
+                  hint="Used for sub-formula calls (auto-generated if blank)"
+                  persistent-hint
+                />
+              </v-col>
+
+              <!-- Formula Sensor specific fields -->
+              <template v-if="formType === 'FORMULA'">
+                <v-col cols="12" class="mt-2">
+                  <!-- Quick Insert Snippets Toolbar -->
+                  <v-sheet rounded="lg" color="surface-variant" class="pa-2 mb-2 border">
+                    <div class="text-caption text-medium-emphasis mb-1 font-weight-bold">
+                      Quick Insert Snippets (Sensors, Sub-Formulas & Window Functions):
+                    </div>
+                    <div class="d-flex flex-wrap gap-1 align-center mb-1">
+                      <v-chip
+                        v-for="s in store.sensors.slice(0, 8)"
+                        :key="s.serialNumber"
+                        size="x-small"
+                        variant="outlined"
+                        :color="s.sensorType === 'PHYSICAL' ? 'indigo' : 'teal'"
+                        class="cursor-pointer"
+                        @click="insertTokenToFormula(s.sensorType === 'FORMULA' ? s.sensorCode : `SN_${s.serialNumber}`)"
+                      >
+                        #{{ s.serialNumber }} ({{ s.sensorType === 'FORMULA' ? s.sensorCode : s.sensorName.split(' ').slice(-2).join(' ') }})
+                      </v-chip>
+                    </div>
+                    <div class="d-flex flex-wrap gap-1 align-center">
+                      <v-btn size="x-small" variant="outlined" @click="insertTokenToFormula('window_avg(10)')">
+                        window_avg(10)
+                      </v-btn>
+                      <v-btn size="x-small" variant="outlined" @click="insertTokenToFormula('window_max(10)')">
+                        window_max(10)
+                      </v-btn>
+                      <v-btn size="x-small" variant="outlined" @click="insertTokenToFormula('window_min(10)')">
+                        window_min(10)
+                      </v-btn>
+                      <v-btn size="x-small" variant="outlined" @click="insertTokenToFormula('abs(')">
+                        abs()
+                      </v-btn>
+                      <v-btn size="x-small" variant="outlined" @click="insertTokenToFormula('sqrt(')">
+                        sqrt()
+                      </v-btn>
+                      <v-btn size="x-small" variant="outlined" @click="insertTokenToFormula(' ? 1.0 : 0.0')">
+                        Ternary (? :)
+                      </v-btn>
+                    </div>
+                  </v-sheet>
+
+                  <v-textarea
+                    v-model="formFormulaExpression"
+                    label="Formula Expression (Referencing Serial SN_# or Formula Code) *"
+                    placeholder="e.g. SN_10001 * 1.8 + 32.0, window_avg(10), (SN_10002 - SN_10004) / 10"
+                    variant="outlined"
+                    density="comfortable"
+                    rows="2"
+                    class="font-family-monospace"
+                    :rules="[v => !!v || 'Formula expression is required']"
+                    @update:model-value="validateFormulaInput"
+                  />
+                </v-col>
+
+                <!-- Live Dependency & Dry-Run Card -->
+                <v-col cols="12" class="mb-2">
+                  <v-alert
+                    v-if="formulaValidationError"
+                    type="error"
+                    variant="tonal"
+                    density="compact"
+                    class="mb-2"
+                    icon="mdi-alert-circle"
+                  >
+                    {{ formulaValidationError }}
+                  </v-alert>
+
+                  <v-sheet rounded="lg" color="surface-variant" class="pa-3 border">
+                    <div class="d-flex align-center justify-space-between mb-1">
+                      <span class="text-caption font-weight-bold">
+                        <v-icon size="small" color="teal" class="mr-1">mdi-graph-outline</v-icon>
+                        Live Dependency Graph Analysis
+                      </span>
+                      <v-btn size="x-small" variant="tonal" color="teal" prepend-icon="mdi-play" @click="runDryTest">
+                        Dry Run Test
+                      </v-btn>
+                    </div>
+                    <div class="d-flex flex-wrap align-center gap-2 text-caption">
+                      <span class="text-medium-emphasis">Referenced Sensors:</span>
+                      <template v-if="detectedSensorRefs.length > 0">
+                        <v-chip
+                          v-for="sId in detectedSensorRefs"
+                          :key="sId"
+                          size="x-small"
+                          color="secondary"
+                          variant="flat"
+                        >
+                          #{{ sId }}
+                        </v-chip>
+                      </template>
+                      <span v-else class="text-disabled">Primary Target (value)</span>
+
+                      <span class="text-medium-emphasis ml-2">Sub-Formulas:</span>
+                      <template v-if="detectedFormulaRefs.length > 0">
+                        <v-chip
+                          v-for="fId in detectedFormulaRefs"
+                          :key="fId"
+                          size="x-small"
+                          color="primary"
+                          variant="flat"
+                        >
+                          {{ fId }}
+                        </v-chip>
+                      </template>
+                      <span v-else class="text-disabled">None</span>
+                    </div>
+                    <div v-if="dryRunResult !== null" class="mt-2 text-caption font-family-monospace text-success font-weight-bold">
+                      ✓ Dry Run Sample Output: {{ dryRunResult }}
+                    </div>
+                  </v-sheet>
+                </v-col>
+              </template>
 
               <v-col cols="12" sm="6">
                 <v-combobox
@@ -464,7 +646,7 @@
                   v-model="formUnit"
                   :items="unitOptions"
                   label="Unit"
-                  placeholder="°C, bar, %, kW"
+                  placeholder="°C, °F, bar, %, kW"
                   variant="outlined"
                   density="comfortable"
                 />
@@ -502,6 +684,7 @@
             color="primary"
             variant="flat"
             :loading="isSubmitting"
+            :disabled="formType === 'FORMULA' && !!formulaValidationError"
             @click="submitForm"
           >
             {{ isEditing ? 'Save Changes' : 'Register Sensor' }}
@@ -599,8 +782,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useSensorRegistryStore } from '../stores/sensorRegistryStore';
+import { useFormulaStore } from '../stores/formulaStore';
+import { extractReferences, extractPrimarySensorId } from '../services/formulaEngine';
 import type {
   SensorRegistryItem,
   SensorType,
@@ -612,17 +797,18 @@ const emit = defineEmits<{
 }>();
 
 const store = useSensorRegistryStore();
+const formulaStore = useFormulaStore();
 
 // Options
 const typeFilterOptions = [
-  { title: 'All Sensors (Total)', value: 'ALL' },
-  { title: 'IoT Physical Sensors', value: 'PHYSICAL' },
-  { title: 'Formula Sensors', value: 'FORMULA' },
+  { title: 'All Sensors (Physical & Formula)', value: 'ALL' },
+  { title: 'IoT Physical Sensors Only', value: 'PHYSICAL' },
+  { title: 'Formula Sensors Only', value: 'FORMULA' },
 ];
 
 const defaultDeviceOptions = ['DEVICE-001', 'DEVICE-002', 'DEVICE-003', 'TURBINE-01', 'PUMP-A'];
 const categoryOptions = ['Temperature', 'Pressure', 'Flow', 'Vibration', 'Electrical', 'Efficiency', 'Mechanical', 'Environmental'];
-const unitOptions = ['°C', 'bar', 'mm/s', 'm³/h', 'kW', 'RPM', '%', 'ratio'];
+const unitOptions = ['°C', '°F', 'bar', 'mm/s', 'm³/h', 'kW', 'RPM', '%', 'ratio'];
 
 // Form State
 const formDialog = ref(false);
@@ -630,8 +816,9 @@ const isEditing = ref(false);
 const isSubmitting = ref(false);
 const editingItem = ref<SensorRegistryItem | null>(null);
 
-const formType = ref<SensorType>('PHYSICAL');
+const formType = ref<SensorType>('FORMULA');
 const formSensorName = ref('');
+const formSensorCode = ref('');
 const formDevice = ref('DEVICE-001');
 const formDeviceIndex = ref<number>(0);
 const formFormulaExpression = ref('');
@@ -639,6 +826,9 @@ const formCategory = ref('Temperature');
 const formUnit = ref('°C');
 const formDescription = ref('');
 const formStatus = ref<SensorStatus>('ACTIVE');
+
+const formulaValidationError = ref<string | null>(null);
+const dryRunResult = ref<number | null>(null);
 
 // Sync Dialog State
 const syncDialog = ref(false);
@@ -657,6 +847,16 @@ const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
 
+const detectedFormulaRefs = computed(() => {
+  if (!formFormulaExpression.value) return [];
+  return extractReferences(formFormulaExpression.value, formulaStore.formulas).formulaIds;
+});
+
+const detectedSensorRefs = computed(() => {
+  if (!formFormulaExpression.value) return [];
+  return extractReferences(formFormulaExpression.value, formulaStore.formulas).sensorIds;
+});
+
 function notify(text: string, color: 'success' | 'error' | 'info' = 'success') {
   snackbarText.value = text;
   snackbarColor.value = color;
@@ -672,16 +872,90 @@ function getStatusColor(status: SensorStatus): string {
   }
 }
 
+function getPrimaryTargetSerial(expression?: string | null): string {
+  return extractPrimarySensorId(expression, '10001');
+}
+
+function getSensorDeps(sensor: SensorRegistryItem) {
+  return formulaStore.getDependencies(sensor.sensorCode);
+}
+
 function copySerial(serial: number) {
   navigator.clipboard.writeText(serial.toString());
   notify(`Serial #${serial} copied to clipboard!`, 'info');
 }
 
-function insertSerialToFormula(serial: number) {
+function copyExpression(expr: string) {
+  navigator.clipboard.writeText(expr);
+  notify('Formula expression copied to clipboard!', 'info');
+}
+
+function insertTokenToFormula(token: string) {
   if (formFormulaExpression.value) {
-    formFormulaExpression.value += ` SN_${serial}`;
+    formFormulaExpression.value += ` ${token}`;
   } else {
-    formFormulaExpression.value = `SN_${serial}`;
+    formFormulaExpression.value = token;
+  }
+  validateFormulaInput();
+}
+
+function validateFormulaInput() {
+  dryRunResult.value = null;
+  formulaValidationError.value = null;
+  if (!formFormulaExpression.value) return;
+
+  const refs = extractReferences(formFormulaExpression.value, formulaStore.formulas);
+  const selfCode = (formSensorCode.value || editingItem.value?.sensorCode || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+  if (selfCode && refs.formulaIds.includes(selfCode)) {
+    formulaValidationError.value = 'Self-reference detected: a formula sensor cannot reference itself.';
+    return;
+  }
+
+  try {
+    let dummy = formFormulaExpression.value
+      .replace(/\bwindow_avg\s*\(\s*\d+\s*\)/g, '1')
+      .replace(/\bwindow_max\s*\(\s*\d+\s*\)/g, '1')
+      .replace(/\bwindow_min\s*\(\s*\d+\s*\)/g, '1')
+      .replace(/\b(?:abs|sqrt|round|floor|ceil|min|max|pow|log|sin|cos)\s*\(/g, 'Math.abs(');
+    refs.formulaIds.forEach((f) => (dummy = dummy.replaceAll(f, '1')));
+    refs.sensorIds.forEach((s) => {
+      dummy = dummy.replaceAll(`SN_${s}`, '1').replaceAll(s, '1');
+    });
+    dummy = dummy.replace(/\bSN_\d+\b/gi, '1').replaceAll('value', '1');
+
+    // eslint-disable-next-line no-new-func
+    new Function(`return (${dummy})`);
+  } catch (err: unknown) {
+    formulaValidationError.value = `Syntax error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+function runDryTest() {
+  validateFormulaInput();
+  if (formulaValidationError.value || !formFormulaExpression.value) return;
+
+  try {
+    const ctx: Record<string, number> = { value: 50.0 };
+    detectedSensorRefs.value.forEach((s) => {
+      ctx[s] = 45.5;
+      ctx[`SN_${s}`] = 45.5;
+    });
+    detectedFormulaRefs.value.forEach((f) => {
+      ctx[f] = 72.0;
+    });
+
+    const testExpr = formFormulaExpression.value
+      .replace(/\bwindow_avg\s*\(\s*\d+\s*\)/g, 'ctx.value')
+      .replace(/\bwindow_max\s*\(\s*\d+\s*\)/g, 'ctx.value')
+      .replace(/\bwindow_min\s*\(\s*\d+\s*\)/g, 'ctx.value')
+      .replace(/\b(abs|sqrt|round|floor|ceil|min|max|pow|log|sin|cos)\s*\(/g, 'Math.$1(');
+
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('ctx', `with(ctx) { return (${testExpr}); }`);
+    const res = fn(ctx);
+    dryRunResult.value = Math.round(Number(res) * 1000) / 1000;
+  } catch (err: unknown) {
+    formulaValidationError.value = `Dry run evaluation failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -690,18 +964,30 @@ function simulateSensor(sensor: SensorRegistryItem) {
   notify(`Switched to Simulation Studio with Sensor #${sensor.serialNumber}`, 'info');
 }
 
-function openCreateModal(type: SensorType) {
+async function duplicateFormula(sensor: SensorRegistryItem) {
+  try {
+    const dup = await store.duplicateFormulaSensor(sensor);
+    notify(`Duplicated Formula Sensor as #${dup.serialNumber} (${dup.sensorCode})!`);
+  } catch (err: unknown) {
+    notify(err instanceof Error ? err.message : 'Failed to duplicate formula sensor', 'error');
+  }
+}
+
+function openCreateModal(type: SensorType = 'FORMULA') {
   isEditing.value = false;
   editingItem.value = null;
   formType.value = type;
   formSensorName.value = '';
+  formSensorCode.value = '';
   formDevice.value = 'DEVICE-001';
   formDeviceIndex.value = 0;
-  formFormulaExpression.value = '';
+  formFormulaExpression.value = type === 'FORMULA' ? 'SN_10001 * 1.5' : '';
   formCategory.value = type === 'PHYSICAL' ? 'Temperature' : 'Efficiency';
   formUnit.value = type === 'PHYSICAL' ? '°C' : '%';
   formDescription.value = '';
   formStatus.value = 'ACTIVE';
+  formulaValidationError.value = null;
+  dryRunResult.value = null;
   formDialog.value = true;
 }
 
@@ -710,6 +996,7 @@ function openEditModal(sensor: SensorRegistryItem) {
   editingItem.value = sensor;
   formType.value = sensor.sensorType;
   formSensorName.value = sensor.sensorName;
+  formSensorCode.value = sensor.sensorCode;
   formDevice.value = sensor.deviceId || '';
   formDeviceIndex.value = sensor.deviceSensorIndex ?? 0;
   formFormulaExpression.value = sensor.formulaExpression || '';
@@ -717,6 +1004,8 @@ function openEditModal(sensor: SensorRegistryItem) {
   formUnit.value = sensor.unit || '';
   formDescription.value = sensor.description || '';
   formStatus.value = sensor.status;
+  formulaValidationError.value = null;
+  dryRunResult.value = null;
   formDialog.value = true;
 }
 
@@ -724,6 +1013,10 @@ async function submitForm() {
   if (!formSensorName.value) {
     notify('Please fill in the sensor name.', 'error');
     return;
+  }
+  if (formType.value === 'FORMULA') {
+    validateFormulaInput();
+    if (formulaValidationError.value) return;
   }
 
   isSubmitting.value = true;
@@ -740,6 +1033,7 @@ async function submitForm() {
       notify(`Sensor #${editingItem.value.serialNumber} updated successfully!`);
     } else {
       const created = await store.createSensor({
+        sensorCode: formType.value === 'FORMULA' && formSensorCode.value.trim() ? formSensorCode.value.trim() : undefined,
         sensorName: formSensorName.value,
         sensorType: formType.value,
         category: formCategory.value,
@@ -812,6 +1106,10 @@ async function executeDelete() {
     isDeleting.value = false;
   }
 }
+
+defineExpose({
+  openCreateModal,
+});
 
 onMounted(() => {
   store.fetchSensors();

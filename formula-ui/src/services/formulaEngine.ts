@@ -80,6 +80,12 @@ export function extractReferences(
   ])
 
   const knownFormulaIds = new Set(allFormulas.map((f) => f.id))
+  const serialFormulaMap = new Map<string, string>()
+  for (const f of allFormulas) {
+    if (f.serialNumber) {
+      serialFormulaMap.set(`SN_${f.serialNumber}`, f.id)
+    }
+  }
 
   // Match identifier tokens: letters, numbers, underscores (starting with letter or underscore)
   const identifierRegex = /[a-zA-Z_][a-zA-Z0-9_]*/g
@@ -93,7 +99,12 @@ export function extractReferences(
 
     // Detect unified serial sensor tokens (e.g. SN_10001) or named sensor tokens (e.g. sensor_000, temp_sensor_1)
     if (/^SN_\d+$/i.test(token)) {
-      sensorIds.add(toCanonicalSensorId(token))
+      const upperToken = token.toUpperCase()
+      if (serialFormulaMap.has(upperToken)) {
+        formulaIds.add(serialFormulaMap.get(upperToken)!)
+      } else {
+        sensorIds.add(toCanonicalSensorId(token))
+      }
     } else if (/^(sensor_\d{3}|sensor_\d+|[A-Za-z0-9_]+_sensor|[A-Za-z0-9_]+_stream)$/i.test(token)) {
       sensorIds.add(token)
     } else if (knownFormulaIds.has(token)) {
@@ -400,6 +411,7 @@ export function simulateFormula(
   const primarySensorBuffer = historyBuffers.get(primarySensorId)
 
   const formulaIdsList = order
+  const formulaDefList = order.map((formulaId) => formulaMap.get(formulaId))
   const formulaFnList = order.map((formulaId) => compiledFns.get(formulaId))
   const formulaBufferList = order.map((formulaId) => historyBuffers.get(formulaId)!)
 
@@ -460,12 +472,16 @@ export function simulateFormula(
 
     for (let i = 0; i < formulaIdsList.length; i++) {
       const formulaId = formulaIdsList[i]
+      const fDef = formulaDefList[i]
       const fn = formulaFnList[i]
       if (fn) {
         try {
           const res = fn(ctx)
           const numRes = typeof res === 'number' && !isNaN(res) ? res : 0
           ctx[formulaId] = numRes
+          if (fDef?.serialNumber) {
+            ctx[`SN_${fDef.serialNumber}`] = numRes
+          }
           intermediateValues[formulaId] = numRes
 
           // Update formula's own history buffer
@@ -473,6 +489,9 @@ export function simulateFormula(
           fBuf.push(numRes)
         } catch {
           ctx[formulaId] = 0
+          if (fDef?.serialNumber) {
+            ctx[`SN_${fDef.serialNumber}`] = 0
+          }
           intermediateValues[formulaId] = 0
           nanCount++
         }

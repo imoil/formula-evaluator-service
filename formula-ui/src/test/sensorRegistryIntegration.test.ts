@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useSensorRegistryStore } from '../stores/sensorRegistryStore';
 import { useSensorStore } from '../stores/sensorStore';
+import { useFormulaStore } from '../stores/formulaStore';
 import { localManager } from '../services/sensorRegistryApi';
 
 describe('Unified Sensor Registry & On-Demand UI Integration', () => {
@@ -70,5 +71,47 @@ describe('Unified Sensor Registry & On-Demand UI Integration', () => {
     expect(inStore).toBeDefined();
     expect(inStore?.name).toContain('High-Pressure Turbine #10');
     expect(sensorStore.sensors.length).toBe(initialTotal + 1);
+  });
+
+  it('unifies Formula Sensors in Unified Sensor Registry with formulaStore', async () => {
+    const registryStore = useSensorRegistryStore();
+    const formulaStore = useFormulaStore();
+
+    await registryStore.fetchSensors();
+
+    // All 5 default formula sensors should be present in registryStore and derived in formulaStore
+    expect(registryStore.formulaCount).toBe(5);
+    expect(formulaStore.formulas.length).toBe(5);
+    expect(formulaStore.getFormulaById('FML-PUMP-EFF-01')).toBeDefined();
+    expect(formulaStore.getFormulaById('TEMP_FAHRENHEIT')).toBeDefined();
+    expect(formulaStore.getFormulaById('POWER_EFFICIENCY_INDEX')).toBeDefined();
+
+    // Create a new formula sensor in Unified Sensor Registry
+    const createdFormula = await registryStore.createSensor({
+      sensorName: 'Custom Combined Thermal Index',
+      sensorCode: 'CUSTOM_THERMAL_IDX',
+      sensorType: 'FORMULA',
+      category: 'Thermal',
+      unit: 'idx',
+      formulaExpression: 'TEMP_FAHRENHEIT * 0.5 + SN_10001',
+      description: 'Derived formula using both sub-formula code and serial sensor',
+    });
+
+    expect(registryStore.formulaCount).toBe(6);
+    expect(formulaStore.formulas.length).toBe(6);
+
+    const derived = formulaStore.getFormulaById('CUSTOM_THERMAL_IDX');
+    expect(derived).toBeDefined();
+    expect(derived?.serialNumber).toBe(createdFormula.serialNumber);
+
+    const deps = formulaStore.getDependencies(derived!.id);
+    expect(deps.referencedFormulas).toContain('TEMP_FAHRENHEIT');
+    expect(deps.referencedSensors).toContain('10001');
+
+    // Duplicate formula sensor in Unified Sensor Registry
+    const duplicated = await registryStore.duplicateFormulaSensor(createdFormula.serialNumber);
+    expect(duplicated.sensorType).toBe('FORMULA');
+    expect(registryStore.formulaCount).toBe(7);
+    expect(formulaStore.formulas.length).toBe(7);
   });
 });

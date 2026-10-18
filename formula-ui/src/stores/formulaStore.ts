@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import type { FormulaDefinition } from '../types/formula'
 import type { SensorRegistryItem } from '../types/sensorRegistry'
 import { analyzeFormulaDependencies, extractPrimarySensorId } from '../services/formulaEngine'
+import { useSensorRegistryStore } from './sensorRegistryStore'
 
 const LOCAL_STORAGE_KEY = 'formula_evaluator_definitions_v1'
 
@@ -11,8 +12,8 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     id: 'TEMP_FAHRENHEIT',
     name: 'Exhaust Temp (°F)',
     category: 'Thermal',
-    targetSensor: 'sensor_000',
-    expression: 'sensor_000 * 1.8 + 32',
+    targetSensor: '10001',
+    expression: 'SN_10001 * 1.8 + 32',
     description: 'Converts primary temperature sensor from Celsius to Fahrenheit.',
     tags: ['Conversion', 'Thermal'],
     createdAt: '2026-10-09 10:00:00',
@@ -22,7 +23,7 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     id: 'SMOOTHED_TEMP',
     name: '10s Sliding Average Temp',
     category: 'Thermal',
-    targetSensor: 'sensor_000',
+    targetSensor: '10001',
     expression: 'window_avg(10)',
     description: 'Noise-reduced temperature using 10-second sliding window average.',
     tags: ['Window', 'Smoothing'],
@@ -33,9 +34,9 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     id: 'PRESSURE_DELTA',
     name: 'Hydraulic Differential Pressure',
     category: 'Pressure',
-    targetSensor: 'sensor_001',
-    expression: 'abs(sensor_001 - sensor_008)',
-    description: 'Absolute difference between line inlet pressure (sensor_001) and return line pressure (sensor_008).',
+    targetSensor: '10002',
+    expression: 'abs(SN_10002 - SN_10004)',
+    description: 'Absolute difference between discharge pressure (#10002) and intake pressure (#10004).',
     tags: ['Delta', 'Hydraulics'],
     createdAt: '2026-10-09 10:10:00',
     updatedAt: '2026-10-09 10:10:00',
@@ -44,7 +45,7 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     id: 'NORMALIZED_HEAT',
     name: 'Normalized Heat Quotient (Calls TEMP_FAHRENHEIT)',
     category: 'Composite',
-    targetSensor: 'sensor_000',
+    targetSensor: '10001',
     expression: '(TEMP_FAHRENHEIT - 32) / 1.8 * 0.95',
     description: 'Composite metric demonstrating calling sub-formula [TEMP_FAHRENHEIT] directly.',
     tags: ['Composite', 'Thermal'],
@@ -55,7 +56,7 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
     id: 'POWER_EFFICIENCY_INDEX',
     name: 'Overall Plant Efficiency Index (Calls NORMALIZED_HEAT & SMOOTHED_TEMP)',
     category: 'Composite',
-    targetSensor: 'sensor_000',
+    targetSensor: '10001',
     expression: '(NORMALIZED_HEAT > 60 ? NORMALIZED_HEAT * 1.15 : NORMALIZED_HEAT) + (SMOOTHED_TEMP * 0.2)',
     description: 'Deep composite formula referencing multiple sub-formulas [NORMALIZED_HEAT, SMOOTHED_TEMP] and conditional logic.',
     tags: ['Composite', 'KPI', 'Plant'],
@@ -64,37 +65,96 @@ const DEFAULT_FORMULAS: FormulaDefinition[] = [
   },
 ]
 
+export function toCleanFormulaId(rawCode: string): string {
+  return rawCode.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+}
+
+export function mapRegistrySensorToFormula(sensor: SensorRegistryItem): FormulaDefinition {
+  const cleanId = toCleanFormulaId(sensor.sensorCode || `FML_${sensor.serialNumber}`)
+  const targetSensor = extractPrimarySensorId(sensor.formulaExpression, '10001')
+  return {
+    id: cleanId,
+    serialNumber: sensor.serialNumber,
+    sensorCode: sensor.sensorCode,
+    name: sensor.sensorName,
+    category: sensor.category || 'Efficiency',
+    targetSensor,
+    expression: sensor.formulaExpression || 'value * 1.0',
+    description: sensor.description || `Oracle Registered Formula Sensor #${sensor.serialNumber}`,
+    tags: ['Registry', `SN_${sensor.serialNumber}`],
+    createdAt: sensor.createdAt || new Date().toISOString(),
+    updatedAt: sensor.updatedAt || new Date().toISOString(),
+  }
+}
+
 export const useFormulaStore = defineStore('formula', () => {
-  const formulas = ref<FormulaDefinition[]>([])
+  const registryStore = useSensorRegistryStore()
+  const customFormulas = ref<FormulaDefinition[]>([])
+  const sessionAddedFormulas = ref<FormulaDefinition[]>([])
 
   function loadFromStorage() {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const saved = window.localStorage.getItem(LOCAL_STORAGE_KEY)
         if (saved) {
-          formulas.value = JSON.parse(saved)
+          customFormulas.value = JSON.parse(saved)
           return
         }
       }
     } catch (e) {
       console.warn('Failed to load formulas from localStorage:', e)
     }
-    formulas.value = [...DEFAULT_FORMULAS]
+    customFormulas.value = [...DEFAULT_FORMULAS]
     saveToStorage()
   }
 
   function saveToStorage() {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(formulas.value))
+        window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(customFormulas.value))
       }
     } catch (e) {
       console.error('Failed to persist formulas:', e)
     }
   }
 
+  /**
+   * Unified Sensor Registry (sensorRegistryStore.sensors 중 FORMULA 타입)와
+   * 로컬 수식 정의를 단방향 반응형(computed)으로 통합
+   */
+  const formulas = computed<FormulaDefinition[]>(() => {
+    if (registryStore.sensors.length === 0) {
+      return customFormulas.value
+    }
+
+    const mergedMap = new Map<string, FormulaDefinition>()
+    for (const item of registryStore.sensors) {
+      if (item.sensorType === 'FORMULA') {
+        const def = mapRegistrySensorToFormula(item)
+        mergedMap.set(def.id, def)
+      }
+    }
+    for (const f of sessionAddedFormulas.value) {
+      if (!mergedMap.has(f.id)) {
+        mergedMap.set(f.id, f)
+      }
+    }
+    return Array.from(mergedMap.values())
+  })
+
   const formulaMap = computed(() => {
-    return new Map(formulas.value.map((f) => [f.id, f]))
+    const map = new Map<string, FormulaDefinition>()
+    for (const f of formulas.value) {
+      map.set(f.id, f)
+      if (f.sensorCode) {
+        map.set(f.sensorCode, f)
+      }
+      if (f.serialNumber) {
+        map.set(String(f.serialNumber), f)
+        map.set(`SN_${f.serialNumber}`, f)
+      }
+    }
+    return map
   })
 
   const formulaCategories = computed(() => {
@@ -103,16 +163,16 @@ export const useFormulaStore = defineStore('formula', () => {
   })
 
   function getFormulaById(id: string): FormulaDefinition | undefined {
-    return formulaMap.value.get(id)
+    return formulaMap.value.get(id) || formulaMap.value.get(toCleanFormulaId(id))
   }
 
   function getDependencies(id: string) {
-    return analyzeFormulaDependencies(id, formulas.value)
+    const resolved = getFormulaById(id)
+    return analyzeFormulaDependencies(resolved ? resolved.id : id, formulas.value)
   }
 
   function addFormula(definition: Omit<FormulaDefinition, 'createdAt' | 'updatedAt'>): FormulaDefinition {
-    // Check ID conflict
-    const cleanId = definition.id.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+    const cleanId = toCleanFormulaId(definition.id)
     if (formulaMap.value.has(cleanId)) {
       throw new Error(`Formula with ID "${cleanId}" already exists.`)
     }
@@ -125,28 +185,38 @@ export const useFormulaStore = defineStore('formula', () => {
       updatedAt: now,
     }
 
-    formulas.value.push(newFormula)
+    customFormulas.value.push(newFormula)
+    sessionAddedFormulas.value.push(newFormula)
     saveToStorage()
     return newFormula
   }
 
   function updateFormula(id: string, updates: Partial<FormulaDefinition>) {
-    const index = formulas.value.findIndex((f) => f.id === id)
-    if (index === -1) {
+    const index = customFormulas.value.findIndex((f) => f.id === id)
+    const sessionIdx = sessionAddedFormulas.value.findIndex((f) => f.id === id)
+    if (index === -1 && sessionIdx === -1 && !formulaMap.value.has(id)) {
       throw new Error(`Formula with ID "${id}" not found.`)
     }
 
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19)
-    formulas.value[index] = {
-      ...formulas.value[index],
-      ...updates,
-      updatedAt: now,
+    if (index !== -1) {
+      customFormulas.value[index] = {
+        ...customFormulas.value[index],
+        ...updates,
+        updatedAt: now,
+      }
+    }
+    if (sessionIdx !== -1) {
+      sessionAddedFormulas.value[sessionIdx] = {
+        ...sessionAddedFormulas.value[sessionIdx],
+        ...updates,
+        updatedAt: now,
+      }
     }
     saveToStorage()
   }
 
   function deleteFormula(id: string) {
-    // Check if other formulas depend on it
     const deps = getDependencies(id)
     if (deps.dependentFormulas.length > 0) {
       throw new Error(
@@ -154,7 +224,8 @@ export const useFormulaStore = defineStore('formula', () => {
       )
     }
 
-    formulas.value = formulas.value.filter((f) => f.id !== id)
+    customFormulas.value = customFormulas.value.filter((f) => f.id !== id)
+    sessionAddedFormulas.value = sessionAddedFormulas.value.filter((f) => f.id !== id)
     saveToStorage()
   }
 
@@ -177,7 +248,8 @@ export const useFormulaStore = defineStore('formula', () => {
   }
 
   function resetToDefaults() {
-    formulas.value = [...DEFAULT_FORMULAS]
+    customFormulas.value = [...DEFAULT_FORMULAS]
+    sessionAddedFormulas.value = []
     saveToStorage()
   }
 
@@ -192,11 +264,17 @@ export const useFormulaStore = defineStore('formula', () => {
     let count = 0
     for (const item of parsed) {
       if (!item.id || !item.expression || !item.name) continue
-      const existingIdx = formulas.value.findIndex((f) => f.id === item.id)
+      const existingIdx = customFormulas.value.findIndex((f) => f.id === item.id)
       if (existingIdx !== -1) {
-        formulas.value[existingIdx] = item
+        customFormulas.value[existingIdx] = item
       } else {
-        formulas.value.push(item)
+        customFormulas.value.push(item)
+      }
+      const sessionIdx = sessionAddedFormulas.value.findIndex((f) => f.id === item.id)
+      if (sessionIdx !== -1) {
+        sessionAddedFormulas.value[sessionIdx] = item
+      } else {
+        sessionAddedFormulas.value.push(item)
       }
       count++
     }
@@ -205,27 +283,32 @@ export const useFormulaStore = defineStore('formula', () => {
   }
 
   function ensureFormulaForRegistrySensor(sensor: SensorRegistryItem): FormulaDefinition {
-    const cleanId = sensor.sensorCode.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_')
-    const existing = getFormulaById(sensor.sensorCode) || getFormulaById(cleanId)
-    const targetSensor = extractPrimarySensorId(sensor.formulaExpression, '10001')
+    const existing =
+      getFormulaById(`SN_${sensor.serialNumber}`) ||
+      getFormulaById(sensor.sensorCode) ||
+      getFormulaById(toCleanFormulaId(sensor.sensorCode))
 
     if (existing) {
+      const targetSensor = extractPrimarySensorId(sensor.formulaExpression, '10001')
       if (sensor.formulaExpression && existing.expression !== sensor.formulaExpression) {
         updateFormula(existing.id, {
           expression: sensor.formulaExpression,
           targetSensor,
         })
       }
-      return getFormulaById(existing.id)!
+      return getFormulaById(existing.id) || mapRegistrySensorToFormula(sensor)
     }
 
+    const mapped = mapRegistrySensorToFormula(sensor)
     return addFormula({
-      id: cleanId,
-      name: sensor.sensorName,
-      expression: sensor.formulaExpression || 'value * 1.0',
-      category: (sensor.category as any) || 'Efficiency',
-      targetSensor,
-      description: sensor.description || 'Oracle Registered Formula Sensor',
+      id: mapped.id,
+      serialNumber: mapped.serialNumber,
+      sensorCode: mapped.sensorCode,
+      name: mapped.name,
+      expression: mapped.expression,
+      category: mapped.category,
+      targetSensor: mapped.targetSensor,
+      description: mapped.description,
     })
   }
 
@@ -248,3 +331,4 @@ export const useFormulaStore = defineStore('formula', () => {
     importJson,
   }
 })
+

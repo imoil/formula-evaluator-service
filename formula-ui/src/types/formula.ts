@@ -1,10 +1,12 @@
 export interface FormulaDefinition {
   id: string
+  serialNumber?: number
+  sensorCode?: string
   name: string
   description?: string
   expression: string
   category: string
-  targetSensor?: string // Primary sensor ID if applicable (e.g., 'sensor_001')
+  targetSensor?: string // Primary sensor ID if applicable (e.g., '10001' or 'sensor_001')
   tags?: string[]
   createdAt: string
   updatedAt: string

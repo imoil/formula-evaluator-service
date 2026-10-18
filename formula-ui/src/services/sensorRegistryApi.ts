@@ -6,8 +6,8 @@ import type {
 } from '../types/sensorRegistry';
 
 const API_BASE_URL = 'http://localhost:8080/api/v1/registry';
-const STORAGE_KEY = 'formula_oracle_sensor_registry';
-const SERIAL_SEQ_KEY = 'formula_oracle_serial_seq';
+const STORAGE_KEY = 'formula_oracle_sensor_registry_v2';
+const SERIAL_SEQ_KEY = 'formula_oracle_serial_seq_v2';
 const TIMEOUT_MS = 800; // 빠른 오프라인 Fallback 전환을 위한 제한시간
 
 // Environment-safe storage helper (supports Node/Vitest test environment & browser)
@@ -42,10 +42,9 @@ const safeStorage = {
   },
 };
 
-function getInitialSeedData(): SensorRegistryItem[] {
+export function getDefaultPhysicalSeedPayloads(): CreateSensorPayload[] {
   return [
     {
-      serialNumber: 10001,
       sensorCode: 'PHY-DEVICE001-S000',
       sensorName: '[DEVICE-001] Main Bearing Temperature',
       sensorType: 'PHYSICAL',
@@ -55,11 +54,8 @@ function getInitialSeedData(): SensorRegistryItem[] {
       deviceSensorIndex: 0,
       description: 'IoT Emulator Device-001 Primary Bearing Thermocouple',
       status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     },
     {
-      serialNumber: 10002,
       sensorCode: 'PHY-DEVICE001-S001',
       sensorName: '[DEVICE-001] Discharge Pressure',
       sensorType: 'PHYSICAL',
@@ -69,11 +65,8 @@ function getInitialSeedData(): SensorRegistryItem[] {
       deviceSensorIndex: 1,
       description: 'IoT Emulator Device-001 Outlet Gas Pressure',
       status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     },
     {
-      serialNumber: 10003,
       sensorCode: 'PHY-DEVICE002-S000',
       sensorName: '[DEVICE-002] Auxiliary Bearing Temperature',
       sensorType: 'PHYSICAL',
@@ -83,11 +76,8 @@ function getInitialSeedData(): SensorRegistryItem[] {
       deviceSensorIndex: 0,
       description: 'IoT Emulator Device-002 Secondary Bearing (Avoids index collision with Device-001)',
       status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     },
     {
-      serialNumber: 10004,
       sensorCode: 'PHY-DEVICE002-S001',
       sensorName: '[DEVICE-002] Intake Pressure',
       sensorType: 'PHYSICAL',
@@ -97,11 +87,13 @@ function getInitialSeedData(): SensorRegistryItem[] {
       deviceSensorIndex: 1,
       description: 'IoT Emulator Device-002 Suction Line Pressure',
       status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     },
+  ];
+}
+
+export function getDefaultFormulaSeedPayloads(): CreateSensorPayload[] {
+  return [
     {
-      serialNumber: 10005,
       sensorCode: 'FML-PUMP-EFF-01',
       sensorName: 'Pump Differential Compression Ratio',
       sensorType: 'FORMULA',
@@ -110,11 +102,8 @@ function getInitialSeedData(): SensorRegistryItem[] {
       formulaExpression: 'SN_10002 / (SN_10004 + 0.001)',
       description: 'Calculated formula sensor comparing discharge vs intake pressure using unified serial numbers',
       status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     },
     {
-      serialNumber: 10006,
       sensorCode: 'FML-THERMAL-DELTA',
       sensorName: 'Dual-Device Thermal Delta',
       sensorType: 'FORMULA',
@@ -123,10 +112,58 @@ function getInitialSeedData(): SensorRegistryItem[] {
       formulaExpression: 'abs(SN_10001 - SN_10003)',
       description: 'Calculated delta between Device-001 and Device-002 bearing temperatures',
       status: 'ACTIVE',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    },
+    {
+      sensorCode: 'TEMP_FAHRENHEIT',
+      sensorName: 'Exhaust Temp (°F)',
+      sensorType: 'FORMULA',
+      category: 'Temperature',
+      unit: '°F',
+      formulaExpression: 'SN_10001 * 1.8 + 32.0',
+      description: 'Converts primary temperature sensor (#10001) from Celsius to Fahrenheit',
+      status: 'ACTIVE',
+    },
+    {
+      sensorCode: 'SMOOTHED_TEMP',
+      sensorName: '10s Sliding Average Temp',
+      sensorType: 'FORMULA',
+      category: 'Temperature',
+      unit: '°C',
+      formulaExpression: 'window_avg(10)',
+      description: 'Noise-reduced temperature using 10-second sliding window average',
+      status: 'ACTIVE',
+    },
+    {
+      sensorCode: 'POWER_EFFICIENCY_INDEX',
+      sensorName: 'Overall Plant Efficiency Index',
+      sensorType: 'FORMULA',
+      category: 'Efficiency',
+      unit: '%',
+      formulaExpression: '(TEMP_FAHRENHEIT > 140 ? TEMP_FAHRENHEIT * 1.05 : TEMP_FAHRENHEIT) * 0.5 + (SMOOTHED_TEMP * 0.2)',
+      description: 'Composite formula sensor referencing sub-formulas [TEMP_FAHRENHEIT, SMOOTHED_TEMP] and conditional logic',
+      status: 'ACTIVE',
     },
   ];
+}
+
+function getInitialSeedData(): SensorRegistryItem[] {
+  const now = new Date().toISOString();
+  const allPayloads = [...getDefaultPhysicalSeedPayloads(), ...getDefaultFormulaSeedPayloads()];
+  return allPayloads.map((payload, idx) => ({
+    serialNumber: 10001 + idx,
+    sensorCode: payload.sensorCode || `SNS-${10001 + idx}`,
+    sensorName: payload.sensorName,
+    sensorType: payload.sensorType,
+    category: payload.category || 'General',
+    unit: payload.unit || '',
+    deviceId: payload.sensorType === 'PHYSICAL' ? payload.deviceId : null,
+    deviceSensorIndex: payload.sensorType === 'PHYSICAL' ? payload.deviceSensorIndex : null,
+    formulaExpression: payload.sensorType === 'FORMULA' ? payload.formulaExpression : null,
+    description: payload.description || '',
+    status: payload.status || 'ACTIVE',
+    createdAt: now,
+    updatedAt: now,
+  }));
 }
 
 class LocalStorageRegistryManager {
@@ -139,7 +176,7 @@ class LocalStorageRegistryManager {
     if (!raw) {
       const initial = getInitialSeedData();
       this.saveSensors(initial);
-      safeStorage.setItem(SERIAL_SEQ_KEY, '10007');
+      safeStorage.setItem(SERIAL_SEQ_KEY, String(10001 + initial.length));
       return initial;
     }
     try {
@@ -154,7 +191,7 @@ class LocalStorageRegistryManager {
   }
 
   private nextSerial(): number {
-    const current = parseInt(safeStorage.getItem(SERIAL_SEQ_KEY) || '10007', 10);
+    const current = parseInt(safeStorage.getItem(SERIAL_SEQ_KEY) || '10010', 10);
     safeStorage.setItem(SERIAL_SEQ_KEY, (current + 1).toString());
     return current;
   }
@@ -175,7 +212,8 @@ class LocalStorageRegistryManager {
           s.sensorCode.toLowerCase().includes(q) ||
           s.category.toLowerCase().includes(q) ||
           s.serialNumber.toString().includes(q) ||
-          (s.deviceId && s.deviceId.toLowerCase().includes(q))
+          (s.deviceId && s.deviceId.toLowerCase().includes(q)) ||
+          (s.formulaExpression && s.formulaExpression.toLowerCase().includes(q))
       );
     }
     return list;
@@ -346,12 +384,22 @@ function isNetworkError(err: unknown): boolean {
   return false;
 }
 
+function isTestEnvironment(): boolean {
+  return typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test';
+}
+
 export const sensorRegistryApi = {
   async fetchSensors(params?: {
     type?: string;
     deviceId?: string;
     keyword?: string;
   }): Promise<{ data: SensorRegistryItem[]; isBackend: boolean }> {
+    if (isTestEnvironment()) {
+      return {
+        data: localManager.getAll(params?.type, params?.deviceId, params?.keyword),
+        isBackend: false,
+      };
+    }
     try {
       const query = new URLSearchParams();
       if (params?.type && params.type !== 'ALL') query.append('type', params.type);
@@ -373,6 +421,11 @@ export const sensorRegistryApi = {
   },
 
   async getSensorBySerial(serialNumber: number): Promise<SensorRegistryItem> {
+    if (isTestEnvironment()) {
+      const item = localManager.getBySerial(serialNumber);
+      if (!item) throw new Error(`센서 일련번호를 찾을 수 없습니다: ${serialNumber}`);
+      return item;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/sensors/${serialNumber}`, {
         signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -387,6 +440,9 @@ export const sensorRegistryApi = {
   },
 
   async createSensor(payload: CreateSensorPayload): Promise<SensorRegistryItem> {
+    if (isTestEnvironment()) {
+      return localManager.create(payload);
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/sensors`, {
         method: 'POST',
@@ -408,6 +464,9 @@ export const sensorRegistryApi = {
   },
 
   async updateSensor(serialNumber: number, payload: UpdateSensorPayload): Promise<SensorRegistryItem> {
+    if (isTestEnvironment()) {
+      return localManager.update(serialNumber, payload);
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/sensors/${serialNumber}`, {
         method: 'PUT',
@@ -429,6 +488,10 @@ export const sensorRegistryApi = {
   },
 
   async deleteSensor(serialNumber: number): Promise<void> {
+    if (isTestEnvironment()) {
+      localManager.delete(serialNumber);
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/sensors/${serialNumber}`, {
         method: 'DELETE',
@@ -448,6 +511,9 @@ export const sensorRegistryApi = {
   },
 
   async syncDeviceSensors(payload: DeviceSyncPayload): Promise<SensorRegistryItem[]> {
+    if (isTestEnvironment()) {
+      return localManager.syncDevice(payload);
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/devices/sync`, {
         method: 'POST',
@@ -469,6 +535,9 @@ export const sensorRegistryApi = {
   },
 
   async fetchDevices(): Promise<string[]> {
+    if (isTestEnvironment()) {
+      return localManager.getDevices();
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/devices`, {
         signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -481,6 +550,9 @@ export const sensorRegistryApi = {
   },
 
   async getNextSerialPreview(): Promise<number> {
+    if (isTestEnvironment()) {
+      return localManager.getNextSerialPreview();
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/next-serial`, {
         signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -494,6 +566,9 @@ export const sensorRegistryApi = {
   },
 
   async syncRulesToFlink(): Promise<{ syncedCount: number; message: string }> {
+    if (isTestEnvironment()) {
+      return localManager.syncRules();
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/sensors/rules/sync`, {
         method: 'POST',

@@ -30,11 +30,7 @@
         </v-chip>
         <v-chip size="small" color="primary" variant="tonal">
           <v-icon start size="14">mdi-numeric</v-icon>
-          {{ sensorRegistryStore.totalCount }} Serialized Sensors (Global Seq)
-        </v-chip>
-        <v-chip size="small" color="secondary" variant="tonal">
-          <v-icon start size="14">mdi-function-variant</v-icon>
-          {{ formulaStore.formulas.length }} Formulas Defined
+          {{ sensorRegistryStore.totalCount }} Serialized Sensors ({{ sensorRegistryStore.physicalCount }} Physical · {{ sensorRegistryStore.formulaCount }} Formula)
         </v-chip>
       </div>
 
@@ -45,9 +41,9 @@
         size="small"
         prepend-icon="mdi-plus"
         class="mr-2"
-        @click="openCreateEditor"
+        @click="openCreateFormulaSensor"
       >
-        New Formula
+        New Formula Sensor
       </v-btn>
 
       <!-- Dark / Light theme toggle -->
@@ -76,10 +72,6 @@
               <v-icon start>mdi-format-list-numbered</v-icon>
               Unified Sensor Registry ({{ sensorRegistryStore.totalCount }})
             </v-tab>
-            <v-tab value="formulas">
-              <v-icon start>mdi-format-list-bulleted-square</v-icon>
-              Formula Management ({{ formulaStore.formulas.length }})
-            </v-tab>
             <v-tab value="simulation">
               <v-icon start>mdi-chart-bell-curve-cumulative</v-icon>
               Simulation Studio (1-Hour Timeseries)
@@ -91,21 +83,15 @@
           </v-tabs>
         </v-card>
 
-        <!-- Tab 0: Unified Sensor Registry (Oracle 19c) -->
+        <!-- Tab 0: Unified Sensor Registry (Oracle 19c - Physical & Formula Sensors) -->
         <div v-show="activeTab === 'registry'">
-          <SensorManagement @simulate-sensor="onSimulateRegistrySensor" />
-        </div>
-
-        <!-- Tab 1: Formula List & Management -->
-        <div v-show="activeTab === 'formulas'">
-          <FormulaList
-            @create="openCreateEditor"
-            @edit="openEditEditor"
-            @simulate="onSimulateFormula"
+          <SensorManagement
+            ref="sensorManagementRef"
+            @simulate-sensor="onSimulateRegistrySensor"
           />
         </div>
 
-        <!-- Tab 2: Simulation Studio -->
+        <!-- Tab 1: Simulation Studio -->
         <div v-show="activeTab === 'simulation'">
           <FormulaSimulation
             :initial-formula-id="simulationStore.targetFormulaId"
@@ -114,7 +100,7 @@
           />
         </div>
 
-        <!-- Tab 3: Sensor Explorer -->
+        <!-- Tab 2: Sensor Explorer -->
         <div v-show="activeTab === 'sensors'">
           <SensorDataExplorer
             :is-active="activeTab === 'sensors'"
@@ -123,40 +109,27 @@
         </div>
       </v-container>
     </v-main>
-
-    <!-- Formula Create / Edit Dialog -->
-    <FormulaEditor
-      v-model="editorDialog"
-      :formula-to-edit="formulaToEdit"
-      @saved="onFormulaSaved"
-    />
   </v-app>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
-import type { FormulaDefinition } from './types/formula'
 import type { SensorRegistryItem } from './types/sensorRegistry'
-import { useFormulaStore } from './stores/formulaStore'
 import { useSensorStore } from './stores/sensorStore'
 import { useSensorRegistryStore } from './stores/sensorRegistryStore'
 import { useSimulationStore } from './stores/simulationStore'
-import FormulaList from './components/FormulaList.vue'
-import FormulaEditor from './components/FormulaEditor.vue'
 import FormulaSimulation from './components/FormulaSimulation.vue'
 import SensorDataExplorer from './components/SensorDataExplorer.vue'
 import SensorManagement from './components/SensorManagement.vue'
 
 const theme = useTheme()
-const formulaStore = useFormulaStore()
 const sensorStore = useSensorStore()
 const sensorRegistryStore = useSensorRegistryStore()
 const simulationStore = useSimulationStore()
 
-const activeTab = ref<'registry' | 'formulas' | 'simulation' | 'sensors'>('registry')
-const editorDialog = ref(false)
-const formulaToEdit = ref<FormulaDefinition | null>(null)
+const activeTab = ref<'registry' | 'simulation' | 'sensors'>('registry')
+const sensorManagementRef = ref<InstanceType<typeof SensorManagement> | null>(null)
 
 const isDarkTheme = computed(() => theme.global.current.value.dark)
 
@@ -164,23 +137,10 @@ function toggleTheme() {
   theme.global.name.value = isDarkTheme.value ? 'light' : 'dark'
 }
 
-function openCreateEditor() {
-  formulaToEdit.value = null
-  editorDialog.value = true
-}
-
-function openEditEditor(formula: FormulaDefinition) {
-  formulaToEdit.value = formula
-  editorDialog.value = true
-}
-
-function onFormulaSaved(saved: FormulaDefinition) {
-  simulationStore.prepareFormulaSimulation(saved)
-}
-
-function onSimulateFormula(formula: FormulaDefinition) {
-  simulationStore.prepareFormulaSimulation(formula)
-  activeTab.value = 'simulation'
+async function openCreateFormulaSensor() {
+  activeTab.value = 'registry'
+  await nextTick()
+  sensorManagementRef.value?.openCreateModal('FORMULA')
 }
 
 function onSelectSensorForSim(sensorId: string) {

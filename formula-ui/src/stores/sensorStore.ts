@@ -79,6 +79,8 @@ export const useSensorStore = defineStore('sensor', () => {
     return Array.from(new Set(sensors.value.map((s) => s.category)))
   })
 
+  const isTestEnv = typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test'
+
   /**
    * 백엔드 또는 로컬 폴백 센서 목록을 로드하여 반응형 레지스트리 카탈로그와 통합
    */
@@ -87,6 +89,13 @@ export const useSensorStore = defineStore('sensor', () => {
 
     isLoading.value = true
     errorMessage.value = null
+
+    if (isTestEnv) {
+      isBackendConnected.value = false
+      baseSensors.value = getFallbackSensors()
+      isLoading.value = false
+      return
+    }
 
     try {
       const data = await fetchBackendSensors()
@@ -112,6 +121,12 @@ export const useSensorStore = defineStore('sensor', () => {
   async function fetchTimeSeries(sensorId: string, durationSeconds = 3600): Promise<SensorDataPoint[]> {
     if (timeSeriesCache.has(sensorId)) {
       return timeSeriesCache.get(sensorId)!
+    }
+
+    if (isTestEnv) {
+      const fallback = getFallbackTimeSeries(sensorId, durationSeconds).points
+      timeSeriesCache.set(sensorId, fallback)
+      return fallback
     }
 
     try {
