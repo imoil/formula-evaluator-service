@@ -1,10 +1,11 @@
 package com.imoil.formula.api;
 
+import com.imoil.formula.datasource.TimeSeriesDataSourceAdapter;
 import com.imoil.formula.datasource.TimeSeriesQueryCriteria;
 import com.imoil.formula.domain.SensorData;
 import com.imoil.formula.service.MockSensorCatalogService;
 import com.imoil.formula.service.MockSensorCatalogService.SensorMeta;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,10 +22,18 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/sensors")
 @CrossOrigin(origins = "*")
-@RequiredArgsConstructor
 public class SensorController {
 
     private final MockSensorCatalogService catalogService;
+    private final TimeSeriesDataSourceAdapter timeSeriesDataSourceAdapter;
+
+    @Autowired
+    public SensorController(
+            MockSensorCatalogService catalogService,
+            @Autowired(required = false) TimeSeriesDataSourceAdapter timeSeriesDataSourceAdapter) {
+        this.catalogService = catalogService;
+        this.timeSeriesDataSourceAdapter = timeSeriesDataSourceAdapter;
+    }
 
     /**
      * 100개의 정규분포 가상 센서 카탈로그 목록을 반환합니다.
@@ -44,6 +53,7 @@ public class SensorController {
 
     /**
      * 특정 센서의 1시간(3,600초) 분량 원본 시계열 데이터를 반환합니다.
+     * 활성화된 TimeSeriesDataSourceAdapter seam을 우선 조회하고, 데이터가 없거나 오프라인인 경우 합성 카탈로그로 폴백합니다.
      */
     @GetMapping("/{sensorId}/timeseries")
     public ResponseEntity<List<SensorData>> getSensorTimeSeries(
@@ -55,6 +65,17 @@ public class SensorController {
                 .sampleBy(sampleBy)
                 .limit(3600)
                 .build();
+
+        if (timeSeriesDataSourceAdapter != null) {
+            try {
+                List<SensorData> adapterPoints = timeSeriesDataSourceAdapter.fetchTimeSeriesData(criteria);
+                if (adapterPoints != null && !adapterPoints.isEmpty()) {
+                    return ResponseEntity.ok(adapterPoints);
+                }
+            } catch (Exception ignored) {
+                // 어댑터 미연결 또는 테이블 부재 시 합성 시계열 데이터로 안전하게 폴백
+            }
+        }
 
         List<SensorData> points = catalogService.generateTimeSeries(criteria);
         return ResponseEntity.ok(points);

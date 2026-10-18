@@ -33,14 +33,6 @@ public class SensorRegistryService {
     private final SensorRegistryRepository repository;
     private final RulePublisherService rulePublisherService;
 
-    private static final String[] CATEGORIES = {
-            "Temperature", "Pressure", "Vibration", "Flow", "Electrical", "Mechanical", "Environmental"
-    };
-
-    private static final String[] UNITS = {
-            "°C", "bar", "mm/s", "m³/h", "kW", "RPM", "%"
-    };
-
     @PostConstruct
     public void initResolverMappings() {
         try {
@@ -235,9 +227,8 @@ public class SensorRegistryService {
                 continue;
             }
 
-            int catIdx = i % CATEGORIES.length;
-            String category = CATEGORIES[catIdx];
-            String unit = UNITS[catIdx];
+            String category = SensorType.defaultCategoryForIndex(i);
+            String unit = SensorType.defaultUnitForCategory(category);
             String sensorCode = String.format("PHY-%s-S%03d",
                     deviceId.replaceAll("[^A-Za-z0-9]", "").toUpperCase(), i);
 

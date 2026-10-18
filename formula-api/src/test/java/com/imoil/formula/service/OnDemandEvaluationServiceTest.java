@@ -32,8 +32,8 @@ class OnDemandEvaluationServiceTest {
     @Mock
     private TimeSeriesDataSourceAdapter timeSeriesDataSourceAdapter;
 
-    @Mock
-    private RuleEngineService ruleEngineService;
+    @org.mockito.Spy
+    private RuleEngineService ruleEngineService = new RuleEngineService();
 
     private OnDemandEvaluationService evaluationService;
 
@@ -54,20 +54,13 @@ class OnDemandEvaluationServiceTest {
         given(timeSeriesDataSourceAdapter.fetchTimeSeriesData(any(TimeSeriesQueryCriteria.class)))
                 .willReturn(List.of(d1, d2, d3));
 
-        // 수식 엔진 mock: 들어온 value에 2를 곱하는 결과 모의
-        given(ruleEngineService.evaluate(eq("value * 2"), any())).willAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> env = invocation.getArgument(1);
-            Double val = (Double) env.get("value");
-            return val * 2.0;
-        });
-
-        // when: 서비스 평가 메서드 실행
+        // when: 서비스 평가 메서드 실행 (RuleEngineService.evaluateSeries 위임)
         List<SensorData> results = evaluationService.evaluateOverTimeRange(
                 "s1", "value * 2", "2026-04-01T00:00:00", "2026-04-01T01:00:00", "1m"
         );
 
         // then: 연산 결과 검증
+        verify(ruleEngineService, times(1)).evaluateSeries(eq("value * 2"), any(), eq("s1_ondemand_eval"));
         assertThat(results).hasSize(3);
         assertThat(results.get(0).getSensorId()).isEqualTo("s1_ondemand_eval");
         assertThat(results.get(0).getValue()).isEqualTo(20.0);
@@ -77,7 +70,7 @@ class OnDemandEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("윈도우 히스토리가 누적되어 window_data 컨텍스트로 수식 엔진에 올바르게 전달된다")
+    @DisplayName("윈도우 히스토리가 누적되어 수식 엔진 내부 슬라이딩 윈도우로 올바르게 평가된다")
     void testSlidingWindowContextPassedToRuleEngine() {
         SensorData d1 = SensorData.builder().sensorId("s1").timestamp(1000L).value(5.0).build();
         SensorData d2 = SensorData.builder().sensorId("s1").timestamp(2000L).value(15.0).build();
@@ -86,23 +79,35 @@ class OnDemandEvaluationServiceTest {
         given(timeSeriesDataSourceAdapter.fetchTimeSeriesData(any(TimeSeriesQueryCriteria.class)))
                 .willReturn(List.of(d1, d2));
 
-        List<List<Double>> capturedWindows = new java.util.ArrayList<>();
-        given(ruleEngineService.evaluate(eq("window_avg(2)"), any())).willAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> env = invocation.getArgument(1);
-            @SuppressWarnings("unchecked")
-            List<Double> win = (List<Double>) env.get("window_data");
-            capturedWindows.add(new java.util.ArrayList<>(win));
-            return 10.0;
-        });
-
-        evaluationService.evaluateOverTimeRange("s1", "window_avg(2)", "start", "end", "1m");
+        List<SensorData> results = evaluationService.evaluateOverTimeRange("s1", "window_avg(2)", "start", "end", "1m");
 
         verify(ruleEngineService, times(2)).evaluate(eq("window_avg(2)"), any());
+        assertThat(results).hasSize(2);
+        // 1번째 포인트: window=[5.0] -> avg=5.0
+        assertThat(results.get(0).getValue()).isEqualTo(5.0);
+        // 2번째 포인트: window=[5.0, 15.0] -> avg=10.0
+        assertThat(results.get(1).getValue()).isEqualTo(10.0);
+    }
 
-        // 1번째 호출 시 window_data = [5.0]
-        assertThat(capturedWindows.get(0)).containsExactly(5.0);
-        // 2번째 호출 시 window_data = [5.0, 15.0]
-        assertThat(capturedWindows.get(1)).containsExactly(5.0, 15.0);
+    @Test
+    @DisplayName("실제 RuleEngineService와 결합 시 SN_10001 일련번호 참조 수식이 온디맨드 경로에서 정상 평가된다")
+    void testEvaluateSerialPrefixedFormulaWithRealEngine() {
+        OnDemandEvaluationService realEvaluationService =
+                new OnDemandEvaluationService(timeSeriesDataSourceAdapter, new RuleEngineService());
+
+        SensorData d1 = SensorData.builder().sensorId("10001").timestamp(1000L).value(20.0).state(0).build();
+        SensorData d2 = SensorData.builder().sensorId("10001").timestamp(2000L).value(30.0).state(0).build();
+
+        given(timeSeriesDataSourceAdapter.getDataSourceType()).willReturn(DataSourceType.QUESTDB);
+        given(timeSeriesDataSourceAdapter.fetchTimeSeriesData(any(TimeSeriesQueryCriteria.class)))
+                .willReturn(List.of(d1, d2));
+
+        List<SensorData> results = realEvaluationService.evaluateOverTimeRange(
+                "10001", "SN_10001 * 1.5 + window_avg(2)", "start", "end", "1s"
+        );
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).getValue()).isEqualTo(50.0); // 20 * 1.5 + 20
+        assertThat(results.get(1).getValue()).isEqualTo(70.0); // 30 * 1.5 + 25
     }
 }

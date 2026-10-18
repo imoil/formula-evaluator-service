@@ -43,6 +43,28 @@ public class MockSensorCatalogService {
         private String sensorType; // PHYSICAL or FORMULA
     }
 
+    private record CategorySpec(
+            String unit,
+            double minMean,
+            double maxMean,
+            double stdRatio,
+            double registryMean,
+            double registryStdDev
+    ) {}
+
+    private static final CategorySpec DEFAULT_SPEC =
+            new CategorySpec("%", 35.0, 75.0, 0.05, 50.0, 2.5);
+
+    private static final Map<String, CategorySpec> CATEGORY_SPECS = Map.of(
+            "temperature", new CategorySpec("°C", 45.0, 110.0, 0.05, 65.0, 3.0),
+            "pressure", new CategorySpec("bar", 20.0, 180.0, 0.04, 100.0, 4.0),
+            "vibration", new CategorySpec("mm/s", 2.5, 28.0, 0.12, 12.0, 1.2),
+            "electrical", new CategorySpec("V", 210.0, 480.0, 0.02, 220.0, 5.0),
+            "flow", new CategorySpec("L/min", 15.0, 95.0, 0.06, 45.0, 2.0),
+            "mechanical", new CategorySpec("RPM", 900.0, 3200.0, 0.03, 50.0, 2.5),
+            "efficiency", new CategorySpec("%", 70.0, 98.0, 0.03, 88.0, 2.0)
+    );
+
     private final Map<String, SensorMeta> sensorCatalog = new LinkedHashMap<>();
     private static final String[] CATEGORIES = {
             "Temperature", "Pressure", "Vibration", "Electrical", "Flow", "Mechanical", "Environmental"
@@ -55,49 +77,28 @@ public class MockSensorCatalogService {
         initSensorCatalog();
     }
 
+    private static CategorySpec specForCategory(String category) {
+        if (category == null) {
+            return DEFAULT_SPEC;
+        }
+        return CATEGORY_SPECS.getOrDefault(category.trim().toLowerCase(Locale.ROOT), DEFAULT_SPEC);
+    }
+
     private void initSensorCatalog() {
         for (int i = 0; i < 100; i++) {
             String id = String.format("sensor_%03d", i);
             String cat = CATEGORIES[i % CATEGORIES.length];
-
-            String unit;
-            double minMean;
-            double maxMean;
-            double stdRatio;
-
-            switch (cat) {
-                case "Temperature":
-                    unit = "°C"; minMean = 45.0; maxMean = 110.0; stdRatio = 0.05;
-                    break;
-                case "Pressure":
-                    unit = "bar"; minMean = 20.0; maxMean = 180.0; stdRatio = 0.04;
-                    break;
-                case "Vibration":
-                    unit = "mm/s"; minMean = 2.5; maxMean = 28.0; stdRatio = 0.12;
-                    break;
-                case "Electrical":
-                    unit = "V"; minMean = 210.0; maxMean = 480.0; stdRatio = 0.02;
-                    break;
-                case "Flow":
-                    unit = "L/min"; minMean = 15.0; maxMean = 95.0; stdRatio = 0.06;
-                    break;
-                case "Mechanical":
-                    unit = "RPM"; minMean = 900.0; maxMean = 3200.0; stdRatio = 0.03;
-                    break;
-                default:
-                    unit = "%"; minMean = 35.0; maxMean = 75.0; stdRatio = 0.05;
-                    break;
-            }
+            CategorySpec spec = specForCategory(cat);
 
             Random rand = new Random((long) (i + 1) * 7331L);
-            double mean = Math.round((minMean + rand.nextDouble() * (maxMean - minMean)) * 10.0) / 10.0;
-            double stdDev = Math.max(0.1, Math.round(mean * stdRatio * (0.8 + rand.nextDouble() * 0.4) * 100.0) / 100.0);
+            double mean = Math.round((spec.minMean() + rand.nextDouble() * (spec.maxMean() - spec.minMean())) * 10.0) / 10.0;
+            double stdDev = Math.max(0.1, Math.round(mean * spec.stdRatio() * (0.8 + rand.nextDouble() * 0.4) * 100.0) / 100.0);
 
             sensorCatalog.put(id, SensorMeta.builder()
                     .id(id)
                     .name(cat + " Sensor #" + String.format("%03d", i))
                     .category(cat)
-                    .unit(unit)
+                    .unit(spec.unit())
                     .mean(mean)
                     .stdDev(stdDev)
                     .minClamp(Math.max(0.0, mean - stdDev * 4))
@@ -145,14 +146,9 @@ public class MockSensorCatalogService {
         String cat = entity.getCategory() != null ? entity.getCategory() : "General";
         String unit = entity.getUnit() != null ? entity.getUnit() : "";
 
-        double mean = 50.0;
-        double stdDev = 2.5;
-        if ("Temperature".equalsIgnoreCase(cat)) { mean = 65.0; stdDev = 3.0; }
-        else if ("Pressure".equalsIgnoreCase(cat)) { mean = 100.0; stdDev = 4.0; }
-        else if ("Vibration".equalsIgnoreCase(cat)) { mean = 12.0; stdDev = 1.2; }
-        else if ("Flow".equalsIgnoreCase(cat)) { mean = 45.0; stdDev = 2.0; }
-        else if ("Electrical".equalsIgnoreCase(cat)) { mean = 220.0; stdDev = 5.0; }
-        else if ("Efficiency".equalsIgnoreCase(cat)) { mean = 88.0; stdDev = 2.0; }
+        CategorySpec spec = specForCategory(cat);
+        double mean = spec.registryMean();
+        double stdDev = spec.registryStdDev();
 
         return SensorMeta.builder()
                 .id(id)
@@ -173,22 +169,15 @@ public class MockSensorCatalogService {
 
     public SensorMeta getSensorMeta(String sensorId) {
         // 1. Oracle 19c SENSOR_REGISTRY 조회 시도 (일련번호 또는 센서코드)
-        if (sensorRegistryRepository != null) {
+        if (sensorRegistryRepository != null && sensorId != null) {
             try {
-                if (sensorId.startsWith("SN_")) {
-                    String rawNum = sensorId.substring(3);
-                    try {
-                        Long sn = Long.parseLong(rawNum);
-                        Optional<SensorRegistryEntity> ent = sensorRegistryRepository.findBySerialNumber(sn);
-                        if (ent.isPresent()) return convertEntityToMeta(ent.get());
-                    } catch (NumberFormatException ignored) {}
+                Optional<Long> parsedSerial = com.imoil.formula.domain.SensorSerialResolver.tryParseSerialNumber(sensorId);
+                if (parsedSerial.isPresent()) {
+                    Optional<SensorRegistryEntity> ent = sensorRegistryRepository.findBySerialNumber(parsedSerial.get());
+                    if (ent.isPresent()) {
+                        return convertEntityToMeta(ent.get());
+                    }
                 }
-
-                try {
-                    Long sn = Long.parseLong(sensorId);
-                    Optional<SensorRegistryEntity> ent = sensorRegistryRepository.findBySerialNumber(sn);
-                    if (ent.isPresent()) return convertEntityToMeta(ent.get());
-                } catch (NumberFormatException ignored) {}
 
                 Optional<SensorRegistryEntity> byCode = sensorRegistryRepository.findBySensorCode(sensorId);
                 if (byCode.isPresent()) {

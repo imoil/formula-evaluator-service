@@ -2,10 +2,9 @@ package com.imoil.formula.flink;
 
 import com.imoil.formula.domain.DynamicRule;
 import com.imoil.formula.domain.SensorData;
-import com.imoil.formula.engine.RuleEngineConfig;
+import com.imoil.formula.domain.SensorSerialResolver;
+import com.imoil.formula.engine.ExpressionValidator;
 import com.imoil.formula.engine.RuleEngineService;
-import com.imoil.formula.engine.functions.WindowAvgFunction;
-import com.imoil.formula.engine.functions.WindowMaxFunction;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.api.common.state.BroadcastState;
 import org.apache.flink.api.common.state.ListState;
@@ -19,9 +18,7 @@ import org.apache.flink.streaming.api.functions.co.KeyedBroadcastProcessFunction
 import org.apache.flink.util.Collector;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 센서 이벤트 스트림과 동적 룰 브로드캐스트 스트림을 결합하여 
@@ -79,9 +76,7 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         ruleStartTimeState = getRuntimeContext().getState(ruleStartTimeDescriptor);
 
         // Flink 클러스터 분산 워커에서 스프링 컨텍스트 없이 자체 생성하여 엔진 캐시 보장
-        RuleEngineConfig config = new RuleEngineConfig();
-        var evaluator = config.aviatorEvaluatorInstance(new WindowAvgFunction(), new WindowMaxFunction());
-        ruleEngineService = new RuleEngineService(evaluator);
+        ruleEngineService = new RuleEngineService();
         
         // 메트릭 등록
         var metricGroup = getRuntimeContext().getMetricGroup();
@@ -92,16 +87,11 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
 
     @Override
     public void processElement(SensorData value, ReadOnlyContext ctx, Collector<SensorData> out) throws Exception {
-        // 1. 적용할 룰 조회 (단일 일련번호 "10001" 및 접두사 "SN_10001" 상호 호환)
-        String sensorId = value.getSensorId();
-        DynamicRule rule = ctx.getBroadcastState(RULE_STATE_DESCRIPTOR).get(sensorId);
-        if (rule == null && sensorId != null) {
-            if (sensorId.startsWith("SN_")) {
-                rule = ctx.getBroadcastState(RULE_STATE_DESCRIPTOR).get(sensorId.substring(3));
-            } else if (sensorId.matches("\\d+")) {
-                rule = ctx.getBroadcastState(RULE_STATE_DESCRIPTOR).get("SN_" + sensorId);
-            }
-        }
+        // 1. 적용할 룰 조회 (정규 일련번호 단일 키 조회)
+        String canonicalSensorId = SensorSerialResolver.toCanonicalSerialId(value.getSensorId());
+        DynamicRule rule = canonicalSensorId != null
+                ? ctx.getBroadcastState(RULE_STATE_DESCRIPTOR).get(canonicalSensorId)
+                : null;
         
         boolean usesWindow = rule != null && rule.isUsesWindow();
         
@@ -131,25 +121,10 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         }
         
         if (rule != null && rule.getExpression() != null) {
-            Map<String, Object> env = new HashMap<>();
-            env.put("value", value.getValue());
-            env.put("state", value.getState());
-            env.put("window_data", history); // 윈도우 커스텀 함수에 제공될 데이터
-            if (value.getSensorId() != null) {
-                env.put(value.getSensorId(), value.getValue());
-                if (value.getSensorId().startsWith("SN_")) {
-                    env.put(value.getSensorId().substring(3), value.getValue());
-                } else if (value.getSensorId().matches("\\d+")) {
-                    env.put("SN_" + value.getSensorId(), value.getValue());
-                }
-            }
-            
             try {
-                double evaluatedResult = ruleEngineService.evaluate(rule.getExpression(), env);
+                double evaluatedResult = ruleEngineService.evaluatePoint(rule.getExpression(), value, history);
                 // 연산된 결과를 단일 일련번호 체계의 파생/수식 센서 식별자로 방출
-                String derivedSensorId = (rule.getDerivedSensorId() != null && !rule.getDerivedSensorId().isBlank())
-                        ? rule.getDerivedSensorId()
-                        : value.getSensorId() + "_derived";
+                String derivedSensorId = rule.resolveOutputSensorId(value.getSensorId());
 
                 SensorData resultData = SensorData.builder()
                         .sensorId(derivedSensorId)
@@ -179,18 +154,12 @@ public class RuleBroadcastProcessFunction extends KeyedBroadcastProcessFunction<
         if (rule != null && rule.getExpression() != null) {
             String expr = rule.getExpression();
             try {
-                com.imoil.formula.engine.ExpressionValidator.validate(expr);
-                rule.setUsesWindow(expr.contains("window_") || expr.contains("previous_"));
+                ExpressionValidator.validate(expr);
+                rule.setUsesWindow(RuleEngineService.usesWindow(expr));
                 BroadcastState<String, DynamicRule> broadcastState = ctx.getBroadcastState(RULE_STATE_DESCRIPTOR);
-                String target = rule.getTargetSensorId();
-                if (target != null && !target.isBlank()) {
-                    broadcastState.put(target, rule);
-                    // 단일 일련번호("10001") 및 접두사("SN_10001") 상호 등록
-                    if (target.startsWith("SN_")) {
-                        broadcastState.put(target.substring(3), rule);
-                    } else if (target.matches("\\d+")) {
-                        broadcastState.put("SN_" + target, rule);
-                    }
+                String canonicalTarget = rule.canonicalTargetSerialId();
+                if (canonicalTarget != null && !canonicalTarget.isBlank()) {
+                    broadcastState.put(canonicalTarget, rule);
                 }
             } catch (Exception e) {
                 log.error("Invalid or unsafe rule expression received for target sensor: {}", rule.getTargetSensorId(), e);

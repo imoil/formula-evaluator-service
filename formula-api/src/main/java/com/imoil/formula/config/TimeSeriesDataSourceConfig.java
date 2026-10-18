@@ -5,7 +5,6 @@ import com.imoil.formula.datasource.QuestDBDataSourceAdapter;
 import com.imoil.formula.datasource.RdbmsDataSourceAdapter;
 import com.imoil.formula.datasource.StreamingBufferDataSourceAdapter;
 import com.imoil.formula.datasource.TimeSeriesDataSourceAdapter;
-import com.imoil.formula.repository.QuestDBQueryRepository;
 import com.imoil.formula.service.MockSensorCatalogService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,9 +27,9 @@ public class TimeSeriesDataSourceConfig {
     @Bean
     @Primary
     @ConditionalOnProperty(name = "evaluation.datasource.type", havingValue = "QUESTDB", matchIfMissing = true)
-    public TimeSeriesDataSourceAdapter questDbDataSourceAdapter(QuestDBQueryRepository questDBQueryRepository) {
+    public TimeSeriesDataSourceAdapter questDbDataSourceAdapter(JdbcTemplate jdbcTemplate) {
         log.info("Configuring TimeSeriesDataSourceAdapter as [QUESTDB]");
-        return new QuestDBDataSourceAdapter(questDBQueryRepository);
+        return new QuestDBDataSourceAdapter(jdbcTemplate);
     }
 
     @Bean

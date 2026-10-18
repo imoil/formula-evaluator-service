@@ -1,6 +1,6 @@
 package com.imoil.formula.service;
 
-import com.imoil.formula.repository.QuestDBQueryRepository;
+import com.imoil.formula.datasource.QuestDBDataSourceAdapter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -27,7 +27,7 @@ public class SecurityValidationTest {
     private QuestDBRetentionService retentionService;
 
     @InjectMocks
-    private QuestDBQueryRepository queryRepository;
+    private QuestDBDataSourceAdapter queryRepository;
 
     @Test
     void testSampleByValidation_Valid() {

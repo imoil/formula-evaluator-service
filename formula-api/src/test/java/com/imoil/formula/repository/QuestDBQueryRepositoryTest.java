@@ -1,5 +1,6 @@
 package com.imoil.formula.repository;
 
+import com.imoil.formula.datasource.QuestDBDataSourceAdapter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,11 +24,11 @@ class QuestDBQueryRepositoryTest {
     @Mock
     private JdbcTemplate jdbcTemplate;
 
-    private QuestDBQueryRepository repository;
+    private QuestDBDataSourceAdapter repository;
 
     @BeforeEach
     void setUp() {
-        repository = new QuestDBQueryRepository(jdbcTemplate);
+        repository = new QuestDBDataSourceAdapter(jdbcTemplate);
     }
 
     @Test

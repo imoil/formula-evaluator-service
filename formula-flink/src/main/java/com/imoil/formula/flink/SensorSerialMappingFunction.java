@@ -27,23 +27,7 @@ public class SensorSerialMappingFunction implements MapFunction<SensorData, Sens
         if (value == null || value.getSensorId() == null) {
             return value;
         }
-
-        String sid = value.getSensorId();
-        // 이미 단일 일련번호(예: "10001") 또는 접두사("SN_10001") 체계인 경우 통과
-        if (sid.matches("\\d+") || sid.startsWith("SN_")) {
-            return value;
-        }
-
-        // "DEVICE-001#5" 또는 "DEVICE-001:5" 형태인 경우 리졸버로 변환
-        if (sid.contains("#") || sid.contains(":")) {
-            String delimiter = sid.contains("#") ? "#" : ":";
-            String[] parts = sid.split(delimiter, 2);
-            try {
-                int idx = Integer.parseInt(parts[1]);
-                value.setSensorId(String.valueOf(resolver.resolveSerialNumber(parts[0], idx)));
-            } catch (NumberFormatException ignored) {}
-        }
-
+        value.setSensorId(resolver.resolveOrKeepSensorId(value.getSensorId()));
         return value;
     }
 }

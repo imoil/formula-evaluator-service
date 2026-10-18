@@ -2,6 +2,8 @@ package com.imoil.formula.registry.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.imoil.formula.domain.DynamicRule;
+import com.imoil.formula.domain.SensorSerialResolver;
+import com.imoil.formula.engine.RuleEngineService;
 import com.imoil.formula.registry.domain.SensorStatus;
 import com.imoil.formula.registry.domain.SensorType;
 import com.imoil.formula.registry.entity.SensorRegistryEntity;
@@ -15,8 +17,6 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 관리자 동적 룰(DynamicRule)을 카프카 rule-data 토픽으로 발행하고,
@@ -36,9 +36,6 @@ public class RulePublisherService {
 
     @Value("${formula.rules.sync-on-startup:true}")
     private boolean syncOnStartup;
-
-    // 수식 내 단일 일련번호 체계(SN_10001 또는 10001) 탐지용 정규식 패턴
-    private static final Pattern SENSOR_REF_PATTERN = Pattern.compile("\\b(?:SN_)?(\\d{4,6})\\b");
 
     /**
      * 단일 DynamicRule을 JSON으로 직렬화한 후 rule-data 토픽으로 발행합니다.
@@ -76,7 +73,7 @@ public class RulePublisherService {
 
         String targetSensorId = resolveTargetSensorId(entity);
         String expression = entity.getFormulaExpression().trim();
-        boolean usesWindow = expression.contains("window_") || expression.contains("previous_");
+        boolean usesWindow = RuleEngineService.usesWindow(expression);
         String derivedSensorId = String.valueOf(entity.getSerialNumber());
         String ruleId = (entity.getSensorCode() != null && !entity.getSensorCode().isBlank())
                 ? "rule_" + entity.getSensorCode()
@@ -141,16 +138,9 @@ public class RulePublisherService {
      * 수식 표현식 또는 엔티티 속성으로부터 대상 센서 일련번호(targetSensorId)를 추출합니다.
      */
     public String resolveTargetSensorId(SensorRegistryEntity entity) {
-        String expr = entity.getFormulaExpression();
-        if (expr != null) {
-            Matcher m = SENSOR_REF_PATTERN.matcher(expr);
-            if (m.find()) {
-                return m.group(0);
-            }
+        if (entity == null) {
+            return String.valueOf(SensorSerialResolver.DEFAULT_BASE_SERIAL);
         }
-        if (entity.getDeviceId() != null && !entity.getDeviceId().isBlank()) {
-            return entity.getDeviceId();
-        }
-        return "10001";
+        return SensorSerialResolver.extractTargetSensorId(entity.getFormulaExpression(), entity.getDeviceId());
     }
 }
