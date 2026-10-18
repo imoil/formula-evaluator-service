@@ -48,15 +48,15 @@ flowchart TD
         end
 
         subgraph ProcessFunction["3. RuleBroadcastProcessFunction (핵심 처리기)"]
-            Validator["ExpressionValidator<br/>(룰 수식 보안 샌드박스 검증)"]
-            BroadcastState["BroadcastState&lt;String, DynamicRule&gt;<br/>('10001' & 'SN_10001' 양방향 등록)"]
+            Validator["RuleEngineService.validateOnce<br/>(룰 수식 보안 샌드박스 검증)"]
+            BroadcastState["BroadcastState&lt;String, DynamicRule&gt;<br/>(Canonical Serial ID '10001' 단일 키 등록)"]
             StateMgmt["RocksDB Keyed State<br/>(30분 StateTtlConfig + 윈도우 여부 판별)"]
-            AviatorJIT["AviatorScript 5.9.0 JIT 엔진<br/>(바이트코드 캐싱 & 윈도우 함수)"]
+            AviatorJIT["RuleEngineService.evaluatePoint<br/>(AviatorScript 5.9.0 JIT + 양방향 식별자 바인딩)"]
             MetricsCollector["Flink MetricGroup<br/>(Hits / Misses / Errors 카운터)"]
         end
 
-        subgraph SinkLayer["4. QuestDbIlpSink (고속 적재)"]
-            ILPBuffer["ILP 인메모리 버퍼링<br/>(auto_flush_rows=100000)"]
+        subgraph SinkLayer["4. QuestDbIlpSink + SensorDataWriter (고속 적재)"]
+            ILPBuffer["SensorDataWriter.forQuestDbSender<br/>(ILP 인메모리 버퍼링, auto_flush_rows=100000)"]
             SocketFlush["TCP 소켓 주기적 비동기 플러시"]
         end
     end
@@ -84,7 +84,7 @@ flowchart TD
 * **문제 배경**: 서로 다른 IoT 장치(`DEVICE-001`, `DEVICE-002`)가 각각 `sensorIndex: 0`을 전송하면 Flink의 `keyBy(SensorData::getSensorId)`에서 두 장치의 데이터가 동일한 키로 묶여 심각한 상태 충돌이 일어납니다.
 * **해결 원리**:
   1. `KafkaSource`가 소비한 레코드에서 `deviceId`와 `timestamp` 헤더를 추출합니다.
-  2. 바디 JSON 배열을 순회하며 [`SensorSerialResolver`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-core/src/main/java/com/imoil/formula/domain/SensorSerialResolver.java)를 호출합니다:
+  2. 바디 JSON 배열을 순회하며 [`SensorSerialResolver`](file:///var/home/imoil/repo/formula-evaluator-service/formula-core/src/main/java/com/imoil/formula/domain/SensorSerialResolver.java)를 호출합니다:
      ```java
      long serialNumber = resolver.resolveSerialNumber(deviceId, item.getSensorIndex());
      String sensorId = String.valueOf(serialNumber); // 예: "10001", "10101"
@@ -96,11 +96,12 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start(["센서 데이터 유입: processElement"]) --> CheckRule{"해당 센서에 매핑된<br/>룰이 존재하는가?<br/>(10001 or SN_10001)"}
+    Start(["센서 데이터 유입: processElement"]) --> Canonicalize["SensorSerialResolver.toCanonicalSerialId(sensorId)<br/>('SN_10001' ➔ '10001')"]
+    Canonicalize --> CheckRule{"BroadcastState에 정규화 키('10001')<br/>룰이 존재하는가?"}
     
     CheckRule -->|No| IncMiss["ruleMissCounter.inc()"] --> EmitRaw["원본 센서 데이터 출력 (collect)"]
     
-    CheckRule -->|Yes| CheckWindow{"룰 수식에 window_ 또는<br/>previous_ 함수가 있는가?"}
+    CheckRule -->|Yes| CheckWindow{"rule.isUsesWindow()<br/>(window_ / previous_ 포함 여부)"}
     
     CheckWindow -->|Yes| UpdateHistory["windowHistoryState.add(value)<br/>히스토리 리스트 추출"]
     CheckWindow -->|No| ClearHistory["windowHistoryState.clear()<br/>(메모리 낭비 방지)"]
@@ -113,9 +114,9 @@ flowchart TD
     MarkInaccurate --> EvalStep
     MarkAccurate --> EvalStep
     
-    EvalStep["AviatorScript 5.9.0 JIT evaluate(expression, env)"] --> CheckEval{"평가 성공 여부"}
+    EvalStep["SensorSerialResolver.bindSerialIdentifiers +<br/>RuleEngineService.evaluatePoint(expression, env, windowData)"] --> CheckEval{"평가 성공 여부"}
     
-    CheckEval -->|성공| MakeDerived["파생 SensorData 빌드<br/>(derivedSensorId 우선, 미지정시 sensorId_derived)"]
+    CheckEval -->|성공| MakeDerived["파생 SensorData 빌드<br/>(rule.resolveOutputSensorId(sensorId))"]
     MakeDerived --> IncHit["ruleHitCounter.inc()"]
     IncHit --> EmitDerived["파생 수식 센서 데이터 출력 (collect)"]
     
@@ -126,17 +127,17 @@ flowchart TD
     EmitRaw --> End([Sink로 전달])
 ```
 
-#### ① 양방향 단일 일련번호 룰 매칭 (`processBroadcastElement` & `processElement`)
+#### ① 정규화 일련번호(Canonical Serial ID) 단일 키 룰 매칭 (`processBroadcastElement` & `processElement`)
 사용자나 UI는 룰을 등록할 때 대상 센서를 `"10001"` 또는 `"SN_10001"`로 지정할 수 있습니다.
-- `processBroadcastElement`에서 룰 등록 시 두 형태(`10001`, `SN_10001`)를 `RULE_STATE_DESCRIPTOR`에 양방향으로 등록합니다.
-- `processElement`에서 유입된 센서 ID가 `"10001"`이든 `"SN_10001"`이든 즉각 $O(1)$로 매핑 룰을 조회합니다.
+- `processBroadcastElement`에서 `ruleEngineService.validateOnce(rule.getExpression())`로 수식을 사전 검증한 뒤, `rule.canonicalTargetSerialId()`를 통해 정규화된 단일 키(`"10001"`) 하나로 `RULE_STATE_DESCRIPTOR`(`BroadcastState`)에 저장합니다 (중복 키 이중 적재 제거).
+- `processElement`에서 유입된 센서 ID가 `"10001"`이든 `"SN_10001"`이든 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 정규화하여 즉각 $O(1)$로 매핑 룰을 조회합니다.
 
-#### ② 파생 수식 센서 일련번호 방출 (`derivedSensorId`)
-룰 정의에 `derivedSensorId`가 지정되어 있을 경우(예: `"10201"`), 수식 연산 결과로 방출되는 파생 센서의 `sensorId`가 `"10201"`로 지정되어 방출됩니다.
-미지정 시 기존 호환성을 위해 `sensorId + "_derived"`로 방출됩니다.
+#### ② 파생 수식 센서 일련번호 방출 (`DynamicRule.resolveOutputSensorId`)
+`rule.resolveOutputSensorId(value.getSensorId())`를 통해 룰 정의에 `derivedSensorId`가 지정되어 있을 경우(예: `"10201"`) 해당 일련번호로 방출하고, 미지정 시 기존 호환성을 위해 `sensorId + "_derived"`로 방출합니다.
 
-#### ③ 단일 일련번호 변수 자동 바인딩 (`SN_10001` & `10001` in Aviator `env`)
-수식 표현식에서 `value * 1.8 + 32.0`뿐만 아니라 `SN_10001 * 1.8 + 32.0` 또는 `10001 * 1.8 + 32.0`처럼 센서 식별자를 직접 참조하는 표현식도 런타임 예외 없이 평가될 수 있도록 `env.put("value", value.getValue())` 외에도 `env.put(value.getSensorId(), value.getValue())` 및 접두사/단일 일련번호 상호 바인딩을 자동으로 수행합니다.
+#### ③ 단일 일련번호 변수 자동 바인딩 및 `RuleEngineService.evaluatePoint` 위임
+- `SensorSerialResolver.bindSerialIdentifiers(env, value.getSensorId(), value.getValue())`를 호출하여 `env.put("value", ...)` 외에도 `"10001"`과 `"SN_10001"`을 양방향 바인딩하므로, 수식 내에서 `SN_10001 * 1.8 + 32.0` 또는 `10001 * 1.8 + 32.0` 형태로 직접 참조할 수 있습니다.
+- `RuleEngineService.evaluatePoint(rule.getExpression(), env, windowData)`가 `AbstractWindowFunction.bindWindowHistory`를 내부에서 캡슐화하여 슬라이딩 윈도우 데이터 바인딩 및 JIT 평가를 일원화합니다.
 
 #### ④ 백엔드 실시간 룰 발행 및 인메모리 일괄 동기화 (Bulk Sync)
 - Flink 컨슈머는 `OffsetsInitializer.latest()`를 유지하여 과거 수십 차례 수정된 구버전 수식의 Replay Churn을 차단합니다.
@@ -148,10 +149,10 @@ flowchart TD
 ## 4. 운영 및 검증 가이드
 
 ### 단위/통합 테스트 스위트
-* [`DeviceSensorRecordDeserializerTest.java`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/DeviceSensorRecordDeserializerTest.java):
+* [`DeviceSensorRecordDeserializerTest.java`](file:///var/home/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/DeviceSensorRecordDeserializerTest.java):
   - 카프카 헤더/바디 역직렬화 및 단일 일련번호 매핑 검증.
   - `DEVICE-001`과 `DEVICE-002`가 동일한 `sensorIndex: 0`을 전송할 때 각각 `10001`, `10101`로 충돌 없이 분리 매핑됨을 검증.
-* [`RuleBroadcastProcessFunctionTest.java`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/RuleBroadcastProcessFunctionTest.java):
+* [`RuleBroadcastProcessFunctionTest.java`](file:///var/home/imoil/repo/formula-evaluator-service/formula-flink/src/test/java/com/imoil/formula/flink/RuleBroadcastProcessFunctionTest.java):
   - 단일 일련번호 `SN_10001`에 대한 룰 브로드캐스트와 실시간 스트림 센서(`10001`)의 매칭 평가 검증.
   - 파생 센서 `derivedSensorId: 10201`이 정상 계산되어 방출됨을 검증.
   - `testBulkDynamicRuleBroadcastAndEvaluation`: 복수 개의 동적 룰 브로드캐스트 유입 시 각 센서별로 독립 수식 평가 및 파생 센서 방출 검증 통과.
@@ -160,5 +161,6 @@ flowchart TD
 
 ## 📚 관련 문서
 * [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](../ARCHITECTURE_GUIDE.md)
+* [도메인 용어 사전 (GLOSSARY.md)](../GLOSSARY.md)
 * [IoT 센서 에뮬레이션 및 엔드투엔드 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)
 * [Formula UI 아키텍처 및 사용자 가이드 (FRONTEND_UI_GUIDE.md)](FRONTEND_UI_GUIDE.md)

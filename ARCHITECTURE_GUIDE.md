@@ -166,7 +166,8 @@ formula-evaluator-service/
 │       ├── DeviceMessageHeader.java             # 에뮬레이터 헤더 모델 (deviceId, timestamp)
 │       ├── DeviceSensorMessage.java             # 에뮬레이터 Envelope 메시지 (header, body)
 │       ├── DeviceSensorKey.java                 # [신규] 장치-센서 복합 키 모델 (deviceId, sensorIndex)
-│       └── SensorSerialResolver.java            # [신규] 단일 일련번호 매핑 및 결정론적 격리 리졸버
+│       ├── SensorSerialResolver.java            # [신규] 단일 일련번호 매핑 및 결정론적 격리 리졸버
+│       └── SensorDataWriter.java                # [신규] 시계열 쓰기 포트 및 QuestDB ILP / No-Op 어댑터
 ├── formula-engine/                              # 수식 컴파일, 평가 및 보안 샌드박스
 │   └── src/main/java/com/imoil/formula/engine/
 │       ├── ExpressionValidator.java             # [보안] 수식 화이트리스트/블랙리스트 정규식 유효성 검증기
@@ -206,7 +207,7 @@ formula-evaluator-service/
 │       │       └── RulePublisherService.java    # [신규] 카프카 rule-data 동적 룰 발행 및 Flink 일괄 동기화
 │       ├── config/
 │       │   ├── KafkaProducerConfig.java         # [신규] rule-data 발행용 KafkaTemplate 구성
-│       │   ├── QuestDBConfig.java               # QuestDB Sender 클라이언트 & No-Op Fallback Dynamic Proxy
+│       │   ├── QuestDBConfig.java               # QuestDB ILP SensorDataWriter & No-Op 어댑터 빈 구성
 │       │   └── TimeSeriesDataSourceConfig.java  # DataSourceType 조건부 Bean 구성
 │       ├── datasource/
 │       │   ├── DataSourceType.java              # QUESTDB, RDBMS, STREAMING_BUFFER, MOCK

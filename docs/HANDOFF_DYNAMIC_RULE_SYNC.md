@@ -24,10 +24,10 @@
 2. **동적 룰 발행 서비스 (`RulePublisherService`) 신설**:
    - `publishRule(DynamicRule rule)`: 단일 룰 JSON 직렬화 후 `rule-data` 토픽으로 전송 (`key = rule.getTargetSensorId()`).
    - `publishFormulaSensor(SensorRegistryEntity entity)`: `SensorRegistryEntity`를 `DynamicRule` 객체로 변환하여 발행.
-     - `targetSensorId`: 수식의 대상 센서 일련번호 (물리 센서 번호 또는 입력 센서 번호)
+     - `targetSensorId`: `SensorSerialResolver.extractTargetSensorId(expression, fallbackSerial)`를 통해 수식 내 대상 센서 일련번호 추출
      - `expression`: `entity.getFormulaExpression()`
      - `derivedSensorId`: `String.valueOf(entity.getSerialNumber())`
-     - `usesWindow`: 표현식에 `window_` 또는 `previous_` 포함 여부 검사
+     - `usesWindow`: `RuleEngineService.usesWindow(expression)` 위임 (`window_` 또는 `previous_` 포함 여부 정적 판별)
 3. **센서 등록/수정 시 실시간 룰 발행 연계**:
    - `SensorRegistryService.createSensor()`: `sensorType == FORMULA`일 경우 DB 저장 후 룰 자동 발행.
    - `SensorRegistryService.updateSensor()`: 수식이 변경되었을 경우 DB 갱신 후 룰 자동 갱신 발행.
@@ -65,7 +65,7 @@
 
 1. `StreamingEvaluatorJob`:
    - `OffsetsInitializer.latest()` 유지.
-   - 백엔드에서 `POST /api/v1/registry/sensors/rules/sync` 호출 시, `RuleBroadcastProcessFunction`의 `processBroadcastElement`가 정상 호출되어 메모리(`BroadcastState`)에 등록되는지 검증.
+   - 백엔드에서 `POST /api/v1/registry/sensors/rules/sync` 호출 시, `RuleBroadcastProcessFunction`의 `processBroadcastElement`가 `ruleEngineService.validateOnce(rule.getExpression())` 검증 후 정규화된 단일 일련번호 키(`rule.canonicalTargetSerialId()`, 예: `"10001"`)로 메모리(`BroadcastState`)에 등록하고, `processElement`에서 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 조회 및 `ruleEngineService.evaluatePoint(...)`로 평가하는지 검증.
 2. 테스트 하네스 검증:
    - 복수 개의 룰이 브로드캐스트로 유입될 때 각 센서별로 독립적으로 올바른 수식이 적용되는지 단위 테스트 수행 (`testBulkDynamicRuleBroadcastAndEvaluation`).
 

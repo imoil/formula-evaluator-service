@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-commit] Running formula-core pure domain & unit checks..."
+./gradlew :formula-core:check :formula-engine:test --no-daemon
+
+if git diff --cached --name-only | grep -q "^formula-ui/"; then
+  echo "[pre-commit] formula-ui changes staged — running typecheck and Vitest..."
+  pnpm --dir formula-ui typecheck
+  pnpm --dir formula-ui test
+fi

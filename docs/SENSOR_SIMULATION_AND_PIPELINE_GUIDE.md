@@ -150,22 +150,22 @@ flowchart TD
 
 ### 단계 5: 동적 룰 평가 및 슬라이딩 윈도우 계산
 * **KeyBy 수평 분산**: `keyBy(SensorData::getSensorId)`로 센서별 이벤트를 Flink 워커에 해시 분산합니다.
-* **Broadcast State 동적 룰 전파**:
+* **Broadcast State 동적 룰 전파 (Canonical Serial ID 단일 키)**:
   - `rule-data` 토픽을 통해 발행된 관리자 수식을 모든 Flink 작업 노드로 복제(Broadcast)합니다.
-  - 단일 일련번호(`"10001"`)와 접두사 형태(`"SN_10001"`) 모두 양방향으로 매칭되어 수식이 즉각 평가됩니다.
-  - 룰에 `derivedSensorId`가 지정되어 있는 경우(예: `"10201"`), 수식 연산 결과로 방출되는 파생 센서의 `sensorId`가 `"10201"`로 부여되어 TSDB에 적재됩니다.
-* **보안 샌드박스 및 AviatorScript JIT 컴파일**:
-  - `ExpressionValidator`가 시스템 명령어, 리플렉션, 무한 루프 시도를 원천 차단합니다.
-  - `window_avg(10)` 또는 `value > 50`과 같은 수식을 바이트코드로 컴파일하여 나노초 단위로 평가합니다.
+  - `RuleBroadcastProcessFunction`은 `DynamicRule.canonicalTargetSerialId()`를 통해 정규화된 단일 일련번호 키(`"10001"`) 하나로 `BroadcastState`를 관리하고, 유입 센서 ID도 `SensorSerialResolver.toCanonicalSerialId(value.getSensorId())`로 정규화하여 `"10001"`과 `"SN_10001"` 입력을 모두 $O(1)$로 매칭합니다.
+  - 평가 시 `SensorSerialResolver.bindSerialIdentifiers(env, sensorId, value)`를 통해 `"10001"`과 `"SN_10001"`을 양방향 바인딩하고, `DynamicRule.resolveOutputSensorId(value.getSensorId())`를 통해 `derivedSensorId`(예: `"10201"`)가 부여된 파생 `SensorData`를 방출합니다.
+* **보안 샌드박스 및 `RuleEngineService.evaluatePoint` 평가**:
+  - 브로드캐스트 룰 수신 시점에 `RuleEngineService.validateOnce`(`ExpressionValidator`)가 시스템 명령어, 리플렉션, 무한 루프 시도를 원천 차단하며, `RuleEngineConfig.createDefaultEvaluator()`로 구성된 AviatorScript 샌드박스 인스턴스를 공유합니다.
+  - `RuleEngineService.evaluatePoint(expression, env, windowHistory)`가 `AbstractWindowFunction.bindWindowHistory`를 내부 캡슐화하여 `window_avg(10)` 또는 `value > 50`과 같은 수식을 나노초 단위로 평가합니다.
 * **RocksDB StateBackend & TTL**:
   - 30분 슬라이딩 윈도우 데이터를 RocksDB에 저장하며, 만료된 상태 데이터는 RocksDB TTL에 의해 자동 청소되어 OOM(Out of Memory)을 방지합니다.
 
 ---
 
-### 단계 6: QuestDB ILP 고속 적재 (`QuestDbIlpSink`)
-* **Influx Line Protocol(ILP) TCP 소켓 적재**:
-  - QuestDB 전용 초경량 Zero-GC 클라이언트(`questdb-client:1.3.9`)를 사용합니다.
-  - 원본 센서 데이터(10001)와 Flink 파생 데이터(10201)를 일괄 전송합니다.
+### 단계 6: QuestDB ILP 고속 적재 (`QuestDbIlpSink` & `SensorDataWriter`)
+* **도메인 포트(`SensorDataWriter`) 기반 Influx Line Protocol(ILP) 적재**:
+  - `formula-core`의 `SensorDataWriter.forQuestDbSender(Sender)` 어댑터(`QuestDbIlpSensorDataWriter`)와 QuestDB 전용 초경량 Zero-GC 클라이언트(`questdb-client:1.3.9`)를 사용하여 `formula-api`와 `formula-flink` 간 ILP 컬럼/태그/나노초 타임스탬프 바인딩 규격을 단일화합니다.
+  - 원본 센서 데이터(`10001`)와 Flink 파생 데이터(`10201`)를 일괄 전송합니다.
   - `auto_flush_rows = 100000`, `auto_flush_interval = 1000` 설정을 통해 초당 수십만 건의 데이터를 디스크 IO 오버헤드 없이 적재합니다.
 
 ---
@@ -428,5 +428,6 @@ Get-NetTCPConnection -LocalPort 8080, 8081, 9092, 9000, 3000 -ErrorAction Silent
 
 ## 📚 관련 문서
 * [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](../ARCHITECTURE_GUIDE.md)
+* [도메인 용어 사전 (GLOSSARY.md)](../GLOSSARY.md)
 * [스트리밍 평가 룰 전파 아키텍처 가이드 (STREAMING_EVALUATOR_GUIDE.md)](STREAMING_EVALUATOR_GUIDE.md)
 * [Formula UI 아키텍처 및 사용자 가이드 (FRONTEND_UI_GUIDE.md)](FRONTEND_UI_GUIDE.md)

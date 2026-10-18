@@ -62,9 +62,9 @@ flowchart LR
 | **UI Library** | [Vuetify](https://vuetifyjs.com/) | `4.2.4` | Material Design 기반 엔지니어링 테마 대시보드 UI (`v-app`, `v-card`, `v-table`, `v-dialog`, `v-chip`) |
 | **Icons** | [@mdi/font](https://materialdesignicons.com/) | `7.4.47` | Material Design Vector Icons (`mdi` 아이콘셋 바인딩) |
 | **Bundler** | [Vite](https://vite.dev/) | `8.3.4` | 초고속 HMR 및 프로덕션 롤다운 빌드, 백엔드 API 리버스 프록시 |
-| **State Management**| [Pinia](https://pinia.vuejs.org/) | `4.0.3` | 센서 레지스트리(`sensorRegistryStore`), 수식 정의(`formulaStore`), 센서 연동(`sensorStore`), 시뮬레이션 실행(`simulationStore`) |
+| **State Management**| [Pinia](https://pinia.vuejs.org/) | `4.0.3` | 센서 레지스트리(`sensorRegistryStore`), 수식 정의(`formulaStore`), 반응형 통합 센서 카탈로그(`sensorStore` `computed`), 시뮬레이션 조정(`simulationStore`) |
 | **Chart Visualizer**| [Apache ECharts](https://echarts.apache.org/) | `6.1.0` | 3,600초 시계열 인터랙티브 DataZoom 슬라이더 및 멀티 시리즈 렌더링 |
-| **Testing** | [Vitest](https://vitest.dev/) | `5.0.3` | 센서 레지스트리 스토어, 수식 엔진, DAG 위상 정렬 단위/통합 테스트 (25개 테스트) |
+| **Testing** | [Vitest](https://vitest.dev/) | `5.0.3` | 센서 레지스트리 스토어, 수식 엔진, DAG 위상 정렬, API 클라이언트 단위/통합 테스트 (36개 테스트) |
 | **Package Manager** | [pnpm](https://pnpm.io/) | `12.10.1` | 고속 및 디스크 효율적인 모노레포 패키지 관리 |
 
 ---
@@ -87,13 +87,14 @@ formula-ui/
 │   │   ├── formulaEngine.ts           # 토큰 파서, DAG 위상 정렬, 윈도우 함수 JIT 엔진
 │   │   └── sensorDataGenerator.ts     # [오프라인/테스트 Fallback] 로컬 시계열 생성기
 │   ├── stores/
-│   │   ├── sensorRegistryStore.ts     # [신규] 센서 레지스트리 상태 관리 Pinia 스토어
-│   │   ├── sensorStore.ts             # 백엔드 formula-api 센서 카탈로그 및 시계열 스토어
-│   │   ├── formulaStore.ts            # 수식 정의 CRUD, localStorage 영속화
-│   │   └── simulationStore.ts         # 백엔드 센서 스트림 기반 시뮬레이션 조정자
+│   │   ├── sensorRegistryStore.ts     # Oracle 센서 레지스트리 상태 관리 Pinia 스토어 (순수 CRUD/동기화)
+│   │   ├── sensorStore.ts             # sensorRegistryStore + baseSensors 반응형(computed) 병합 센서 카탈로그 및 시계열 스토어
+│   │   ├── formulaStore.ts            # 수식 정의 CRUD, ensureFormulaForRegistrySensor, localStorage 영속화
+│   │   └── simulationStore.ts         # 백엔드 센서 스트림 기반 시뮬레이션 조정자 (prepareRegistrySensorSimulation 포함)
 │   ├── test/
-│   │   ├── sensorRegistryStore.test.ts # [신규] 레지스트리 Pinia 스토어 CRUD 단위 테스트
-│   │   ├── sensorRegistryIntegration.test.ts # [신규] UI-온디멘드 시뮬레이션 통합 테스트
+│   │   ├── apiClient.test.ts          # formula-api REST 클라이언트 및 URL 인코딩 단위 테스트
+│   │   ├── sensorRegistryStore.test.ts # 레지스트리 Pinia 스토어 CRUD 단위 테스트
+│   │   ├── sensorRegistryIntegration.test.ts # UI-온디멘드 시뮬레이션 통합 테스트
 │   │   ├── formulaEngine.test.ts      # 수식 엔진 및 DAG 위상 정렬 Vitest 단위 테스트
 │   │   ├── circularBuffer.test.ts     # CircularBuffer 단위 테스트
 │   │   ├── formulaStore.test.ts       # Pinia 수식 스토어 CRUD Vitest 단위 테스트
@@ -126,9 +127,10 @@ flowchart TD
     Tabs --> Tab0 & Tab1 & Tab2 & Tab3
 ```
 
-### 화면 0: 통합 센서 일련번호 관리 ([`SensorManagement.vue`](file:///C:/Users/imoil/repo/formula-evaluator-service/formula-ui/src/components/SensorManagement.vue))
+### 화면 0: 통합 센서 일련번호 관리 (`SensorManagement.vue`)
 * **단일 일련번호 체계 (`serialNumber: 10001+`)**:
   - IoT 장치의 물리 센서(`PHYSICAL`)와 수식 센서(`FORMULA`)가 통일된 일련번호로 관리됩니다.
+  - `sensorStore.sensors`는 `sensorRegistryStore.sensors`와 `baseSensors`를 반응형 `computed`로 자동 병합하므로, 레지스트리에서 센서를 추가·수정·삭제할 때마다 수동 카탈로그 동기화 호출 없이 온디멘드 시뮬레이터와 탐색기에 즉시 반영됩니다.
   - 상단 KPI 통계 요약 카드: 총 등록 센서, 물리 센서, 수식 센서, 연결된 IoT 장치 수 실시간 집계.
 * **센서 추가 모달**:
   - 물리 센서: 장치명(예: `DEVICE-001`), 장치 로컬 센서 인덱스(예: `0`), 센서명, 카테고리, 단위 입력.
@@ -137,8 +139,8 @@ flowchart TD
 * **IoT 장치 일괄 동기화 (Sync Device)**:
   - `formula-emulator`의 IoT 장치(예: `DEVICE-001`) 센서 1,000개를 한 번에 등록하여 고유 일련번호를 순차 부여.
   - 기존 등록 센서 건너뛰기(`skipExisting: true`) 옵션 제공.
-* **⚡ On-Demand Simulation 원클릭 연계**:
-  - 각 센서 행의 번개 모양 아이콘(`⚡`)을 클릭하면 즉시 `FormulaSimulation` 탭으로 전환되며, 해당 센서가 대상 스트림으로 자동 선택되어 시뮬레이션이 실행됩니다.
+* **⚡ On-Demand Simulation 원클릭 연계 (`simulationStore.prepareRegistrySensorSimulation`)**:
+  - 각 센서 행의 번개 모양 아이콘(`⚡`)을 클릭하면 `simulationStore.prepareRegistrySensorSimulation(sensor)`이 호출되어 `formulaStore.ensureFormulaForRegistrySensor(sensor)` 실행, 대상 센서 선택(`sensorStore.selectSensor`), 표현식 바인딩(`sensorStore.setExpression`)이 단일 진입점에서 처리된 후 `FormulaSimulation` 탭으로 즉시 전환됩니다.
 * **🔄 Flink 룰 일괄 동기화 (Sync Rules to Flink)**:
   - 상단 툴바의 **"Sync Rules to Flink"** 버튼을 클릭하여 Oracle 19c `SENSOR_REGISTRY`의 모든 활성 수식 센서를 Kafka `rule-data` 토픽으로 일괄 발행.
   - Flink 클러스터 작업(Job) 재기동 없이 즉시 워커 메모리(`BroadcastState`)로 전파되어 실시간 수식 평가 활성화.
@@ -153,7 +155,7 @@ flowchart TD
 ```bash
 cd formula-ui
 
-# 26개 단위/통합 테스트 전체 실행 (Vitest)
+# 36개 단위/통합 테스트 전체 실행 (Vitest)
 pnpm test
 
 # 프로덕션 번들 타입 체크 및 빌드
@@ -164,5 +166,6 @@ pnpm build
 
 ## 📚 관련 문서
 * [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](../ARCHITECTURE_GUIDE.md)
+* [도메인 용어 사전 (GLOSSARY.md)](../GLOSSARY.md)
 * [스트리밍 평가 룰 전파 아키텍처 가이드 (STREAMING_EVALUATOR_GUIDE.md)](STREAMING_EVALUATOR_GUIDE.md)
 * [IoT 센서 에뮬레이션 및 엔드투엔드 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)

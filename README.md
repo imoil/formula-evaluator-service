@@ -52,12 +52,12 @@ flowchart TD
             DeviceDeserializer <--> Resolver
         end
 
-        BroadcastState["Rule Broadcast State (작업자 분산 전파)"]
+        BroadcastState["Rule Broadcast State (정규 일련번호 '10001' 단일 키 전파)"]
         KeyedStream["KeyedStream by sensorId (10001, 10101... 키 충돌 차단)"]
         RocksDBState["RocksDB State Backend (30분 슬라이딩 윈도우 + TTL)"]
         SecCheck1["ExpressionValidator (수식 샌드박스 검증)"]
-        AviatorJIT1["AviatorScript 5.9.0 JIT 컴파일러 (바이트코드 캐시)"]
-        ILPSink["QuestDB ILP Sink (비동기 배치 플러시, 10만 건)"]
+        AviatorJIT1["RuleEngineService.evaluatePoint (Aviator 5.9.0 JIT + 양방향 일련번호 바인딩)"]
+        ILPSink["QuestDbIlpSink (SensorDataWriter 기반 비동기 배치 플러시)"]
 
         SensorTopic --> Consumer
         Consumer --> DeviceDeserializer
@@ -81,19 +81,17 @@ flowchart TD
         RegistrySvc["SensorRegistryService (@Transactional, JPA CRUD)"]
         Controller1["OnDemandEvaluationController (/api/v1/evaluate)"]
         Controller2["SensorController (/api/v1/sensors)"]
-        SecCheck2["ExpressionValidator (수식 검증)"]
-        Service["OnDemandEvaluationService (LinkedList Window & Map Reuse)"]
+        Service["OnDemandEvaluationService (RuleEngineService.evaluateSeries 위임)"]
         Catalog["MockSensorCatalogService (Oracle DB 통합 시계열 원천)"]
         AdapterLayer["TimeSeriesDataSourceAdapter 인터페이스"]
-        QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 화이트리스트 검증)"]
+        QuestDBAdapter["QuestDBDataSourceAdapter (SAMPLE BY 검증 & PGWire SQL 내장)"]
         MockAdapter["MockNormalDistributionDataSourceAdapter"]
-        AviatorJIT2["AviatorScript Engine (보안 샌드박스 활성화)"]
+        AviatorJIT2["RuleEngineService (AbstractWindowFunction 슬라이딩 윈도우 캡슐화)"]
 
         RegistryCtrl --> RegistrySvc
         RegistrySvc <-->|JPA / OJDBC11| OracleDB
         RegistrySvc -->|등록 시 동기화| Resolver
-        Controller1 --> SecCheck2
-        SecCheck2 --> Service
+        Controller1 --> Service
         Controller2 --> Catalog
         Catalog <--> RegistrySvc
         Service --> AdapterLayer
@@ -107,10 +105,10 @@ flowchart TD
         UI_Registry["SensorManagement.vue (단일 센서 일련번호 관리 & IoT 장치 동기화)"]
         UI_Sim["FormulaSimulation.vue (온디멘드 시뮬레이션 스튜디오)"]
         UI_Editor["FormulaEditor.vue (수식 편집 및 DAG 분석)"]
-        PiniaStores["Pinia Stores (sensorRegistryStore / sensorStore / formulaStore)"]
+        PiniaStores["Pinia Stores (sensorRegistryStore / 반응형 sensorStore / simulationStore)"]
 
         UI_Registry <--> PiniaStores
-        UI_Registry -->|⚡ On-Demand Simulation| UI_Sim
+        UI_Registry -->|⚡ prepareRegistrySensorSimulation| UI_Sim
         UI_Sim & UI_Editor --> PiniaStores
     end
 
@@ -127,10 +125,10 @@ flowchart TD
 
 ```mermaid
 flowchart BT
-    formulaCore["formula-core<br/>(순수 도메인 모델, 리졸버, 복합키)"]
-    formulaEngine["formula-engine<br/>(AviatorScript 엔진 & 보안 샌드박스)"]
-    formulaApi["formula-api<br/>(Spring Boot REST 서비스, Oracle 레지스트리, 어댑터)"]
-    formulaFlink["formula-flink<br/>(Flink 스트리밍 잡 & ILP 싱크)"]
+    formulaCore["formula-core<br/>(순수 도메인 모델, 리졸버, 복합키, SensorDataWriter 포트)"]
+    formulaEngine["formula-engine<br/>(AviatorScript 엔진, 보안 샌드박스, 슬라이딩 윈도우 시계열 평가)"]
+    formulaApi["formula-api<br/>(Spring Boot REST 서비스, Oracle 레지스트리, 데이터소스 어댑터)"]
+    formulaFlink["formula-flink<br/>(Flink 스트리밍 잡 & SensorDataWriter 기반 ILP 싱크)"]
     formulaEmulator["formula-emulator<br/>(IoT 1,000개 센서 시뮬레이션 Tool)"]
     formulaUi["formula-ui<br/>(Vue 3 + Vuetify 4 프론트엔드 UI)"]
 
@@ -147,12 +145,12 @@ flowchart BT
 
 | 모듈명 | 유형 | 주요 기술 | 책임 및 기능 |
 | :--- | :--- | :--- | :--- |
-| **`formula-core`** | Java Library | Java 25, Lombok | 순수 도메인 모델 (`SensorData`, `DynamicRule`, `DeviceSensorKey`, `SensorSerialResolver`, `SensorItem`) 정의 |
-| **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일, 런타임 보안 샌드박스(`ExpressionValidator`, 클래스 차단), 커스텀 윈도우 함수 (`window_avg`, `window_max`) |
-| **`formula-api`** | Spring Boot App | Spring Boot 3.5.16, Spring Data JPA, Oracle OJDBC11, QuestDB Client | **Oracle 19c SENSOR_REGISTRY 통합 일련번호 관리 (`/api/v1/registry/sensors`)**, 온디멘드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 100개 센서 카탈로그 API (`/api/v1/sensors`), 플러그형 시계열 어댑터 (`MOCK`, `QUESTDB`), 파티션 자동 보존 배치 |
-| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector | 분산 스트리밍 평가 파이프라인, **카프카 컨슈머-데이터소스 간 단일 일련번호 변환 역직렬화(`DeviceSensorRecordDeserializer`)**, `SensorSerialMappingFunction`, Broadcast State 패턴 기반 룰 전파, RocksDB State TTL 메모리 관리, QuestDB ILP 비동기 적재 |
+| **`formula-core`** | Java Library | Java 25, Lombok | 순수 도메인 모델 (`SensorData`, `DynamicRule`, 생성 시점 정규화 `DeviceSensorKey`, `SensorSerialResolver`, `SensorItem`) 및 TSDB 쓰기 포트·어댑터 (`SensorDataWriter`: `QuestDbIlpSensorDataWriter`, `NoOpSensorDataWriter`) 정의 |
+| **`formula-engine`** | Java Library | AviatorScript 5.9.0, Spring Context | 동적 수식 JIT 컴파일 및 단건/시계열 평가 (`RuleEngineService.evaluatePoint`, `evaluateSeries`), 독립 실행 팩토리 (`RuleEngineConfig.createDefaultEvaluator`), 런타임 보안 샌드박스(`ExpressionValidator`), 윈도우 컨텍스트가 캡슐화된 커스텀 윈도우 함수 (`AbstractWindowFunction`, `window_avg`, `window_max`) |
+| **`formula-api`** | Spring Boot App | Spring Boot 3.5.16, Spring Data JPA, Oracle OJDBC11, QuestDB Client | **Oracle 19c SENSOR_REGISTRY 통합 일련번호 관리 (`/api/v1/registry/sensors`)**, 온디멘드 평가 REST 엔드포인트 (`/api/v1/evaluate`), 100개 센서 카탈로그 API (`/api/v1/sensors`), SQL·`SAMPLE BY` 검증이 내장된 `QuestDBDataSourceAdapter`, `SensorDataWriter` 기반 `QuestDBIngestionService` 및 파티션 자동 보존 배치 |
+| **`formula-flink`** | Flink Streaming Job | Apache Flink 1.19.3, RocksDB, Kafka Connector | 분산 스트리밍 평가 파이프라인, **카프카 컨슈머-데이터소스 간 단일 일련번호 변환 역직렬화(`DeviceSensorRecordDeserializer`)**, `SensorSerialMappingFunction`, 정규 일련번호(`10001`) 단일 키 기반 `RuleBroadcastProcessFunction`, RocksDB State TTL 메모리 관리, `SensorDataWriter` 기반 `QuestDbIlpSink` |
 | **`formula-emulator`** | Standalone Java App | Java 25, Kafka Clients 3.9, Jackson | 1,000개 수준의 IoT 센서 에뮬레이션 Tool. 1초~10초 주기 센서 변동, 매 1초 무지연 스케줄러(`scheduleAtFixedRate`) 기반 변동 센서 취합 및 카프카 비동기 배치 전송 |
-| **`formula-ui`** | Frontend SPA | Vite 8, Vue 3.5, Vuetify 4.2, ECharts 6.1, Pinia, pnpm | **단일 센서 일련번호 관리 페이지(`SensorManagement.vue`)**, 온디멘드 수식 작성/저장, 합성 수식 DAG 위상 정렬 분석, `CircularBuffer` 기반 초고속 시뮬레이션(86,400초 연산 ~500ms), 백엔드 연동 100개 센서 시계열 시각화 |
+| **`formula-ui`** | Frontend SPA | Vite 8, Vue 3.5, Vuetify 4.2, ECharts 6.1, Pinia, pnpm | **단일 센서 일련번호 관리 페이지(`SensorManagement.vue`)**, `sensorRegistryStore`에서 반응형(`computed`)으로 파생되는 통합 `sensorStore`, `simulationStore.prepareRegistrySensorSimulation` 원클릭 시뮬레이션 연동, 합성 수식 DAG 위상 정렬 분석, `CircularBuffer` 기반 초고속 시뮬레이션 |
 
 ---
 
@@ -370,6 +368,8 @@ Content-Type: application/json
 
 ## 📚 관련 상세 문서
 * [시스템 전체 아키텍처 및 상세 엔지니어링 가이드 (ARCHITECTURE_GUIDE.md)](ARCHITECTURE_GUIDE.md)
+* [도메인 유비쿼터스 언어 사전 (GLOSSARY.md)](GLOSSARY.md)
 * [IoT 센서 에뮬레이션 및 엔드투엔드 파이프라인 가이드 (SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)](docs/SENSOR_SIMULATION_AND_PIPELINE_GUIDE.md)
 * [Formula UI 아키텍처 및 사용자 가이드 (Frontend UI Guide)](docs/FRONTEND_UI_GUIDE.md)
 * [스트리밍 평가 룰 전파 아키텍처 가이드 (Streaming Evaluator Guide)](docs/STREAMING_EVALUATOR_GUIDE.md)
+* [관리자 동적 룰 발행 및 일괄 동기화 핸드오프 문서 (HANDOFF_DYNAMIC_RULE_SYNC.md)](docs/HANDOFF_DYNAMIC_RULE_SYNC.md)
