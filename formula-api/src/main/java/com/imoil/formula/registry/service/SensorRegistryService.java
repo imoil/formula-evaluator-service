@@ -18,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -162,11 +164,28 @@ public class SensorRegistryService {
      */
     @Transactional
     public void seedDefaultSensorsIfNeeded() {
-        if (repository.findBySensorType(SensorType.PHYSICAL).isEmpty()) {
+        boolean physicalEmpty = repository.findBySensorType(SensorType.PHYSICAL).isEmpty();
+        boolean formulaEmpty = repository.findBySensorType(SensorType.FORMULA).isEmpty();
+
+        if (!physicalEmpty && !formulaEmpty) {
+            return;
+        }
+
+        List<SensorRegistryEntity> existingAll = repository.findAll();
+        Set<String> existingCodes = existingAll.stream()
+                .map(SensorRegistryEntity::getSensorCode)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<String> existingDeviceSensors = existingAll.stream()
+                .filter(e -> e.getDeviceId() != null && e.getDeviceSensorIndex() != null)
+                .map(e -> e.getDeviceId() + ":" + e.getDeviceSensorIndex())
+                .collect(Collectors.toSet());
+
+        if (physicalEmpty) {
             List<SensorRegistryEntity> physicalToSave = new ArrayList<>();
             for (DefaultPhysicalSpec spec : DEFAULT_PHYSICAL_SPECS) {
-                if (!repository.existsBySensorCode(spec.sensorCode())
-                        && !repository.existsByDeviceIdAndDeviceSensorIndex(spec.deviceId(), spec.deviceSensorIndex())) {
+                String devKey = spec.deviceId() + ":" + spec.deviceSensorIndex();
+                if (!existingCodes.contains(spec.sensorCode()) && !existingDeviceSensors.contains(devKey)) {
                     physicalToSave.add(SensorRegistryEntity.builder()
                             .sensorCode(spec.sensorCode())
                             .sensorName(spec.sensorName())
@@ -178,6 +197,8 @@ public class SensorRegistryService {
                             .description(spec.description())
                             .status(SensorStatus.ACTIVE)
                             .build());
+                    existingCodes.add(spec.sensorCode());
+                    existingDeviceSensors.add(devKey);
                 }
             }
             if (!physicalToSave.isEmpty()) {
@@ -186,10 +207,10 @@ public class SensorRegistryService {
             }
         }
 
-        if (repository.findBySensorType(SensorType.FORMULA).isEmpty()) {
+        if (formulaEmpty) {
             List<SensorRegistryEntity> formulasToSave = new ArrayList<>();
             for (DefaultFormulaSpec spec : DEFAULT_FORMULA_SPECS) {
-                if (!repository.existsBySensorCode(spec.sensorCode())) {
+                if (!existingCodes.contains(spec.sensorCode())) {
                     formulasToSave.add(SensorRegistryEntity.builder()
                             .sensorCode(spec.sensorCode())
                             .sensorName(spec.sensorName())
@@ -200,6 +221,7 @@ public class SensorRegistryService {
                             .description(spec.description())
                             .status(SensorStatus.ACTIVE)
                             .build());
+                    existingCodes.add(spec.sensorCode());
                 }
             }
             if (!formulasToSave.isEmpty()) {
